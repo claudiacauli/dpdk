@@ -3,8 +3,23 @@
 
 FAILED=0
 
+# Parallel prover tasks: one per PHYSICAL core by default; override with
+# WP_PAR=n. Logical (SMT/hyperthread) counts oversubscribe the ALUs and
+# slow every prover down — bad for goals near their timeout ceiling. Only
+# helps passes with many goals — a single isolated goal is still one
+# single-threaded prover, whatever the machine.
+phys_cores() {
+	if command -v lscpu >/dev/null 2>&1; then
+		# unique (core, socket) pairs among online CPUs
+		lscpu -b -p=Core,Socket | grep -v '^#' | sort -u | wc -l
+	else
+		sysctl -n hw.physicalcpu 2>/dev/null || nproc 2>/dev/null || echo 4
+	fi
+}
+NPAR=${WP_PAR:-$(phys_cores)}
+
 run_wp() {
-	frama-c -rte -wp -wp-prover alt-ergo,z3,cvc5 "$@" || FAILED=1
+	frama-c -rte -wp -wp-prover alt-ergo,z3,cvc5 -wp-par "$NPAR" "$@" || FAILED=1
 }
 
 contract_has() {
