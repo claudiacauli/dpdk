@@ -132,4 +132,22 @@ axiomatic LandWrap {
 }
 */
 
+/*
+ * Top-of-range wrap for the 32-bit mask: for x in the last 2^32-sized
+ * block of the uint64 domain, [2^64 - 2^32, 2^64), the masked value is
+ * (x & 0xFFFFFFFF) == x - (2^64 - 2^32). This is the case that
+ * land_id_u32/land_wrap_u32 do not reach: uint64 sums of uint64-cast
+ * negative int32-canonical bounds land exactly there. Same Cbits
+ * limitation as the rest of the land_* family; trusted, CBMC-checked
+ * over the full uint64 domain.
+ */
+/*@
+axiomatic LandWrapTop {
+	axiom land_wrap_u32_top:
+		\forall integer x;
+		0xFFFFFFFF00000000 <= x <= 0xFFFFFFFFFFFFFFFF ==>
+		(x & 0xFFFFFFFF) == x - 0xFFFFFFFF00000000;
+}
+*/
+
 #endif /* SPECS_H */

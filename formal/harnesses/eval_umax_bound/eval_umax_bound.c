@@ -5,13 +5,14 @@
 	requires mask == _32_BIT_MASK || mask == _64_BIT_MASK;
     	terminates \true;
 	assigns rv->u.min, rv->u.max;
-	ensures rv->u.min == 0 && rv->u.max == mask;
-	ensures rv->u.max == _32_BIT_MASK || rv->u.max == _64_BIT_MASK;
-	ensures rv->s == \old(rv->s);
-	ensures rv->mask == \old(rv->mask);
-	ensures rv->v == \old(rv->v);
-	ensures unsigned_range_ordering(rv);
-	ensures unsigned_range_within_width(rv, mask);
+
+	ensures ufull:      rv->u.min == 0 && rv->u.max == mask;
+	ensures umax_ok:    rv->u.max == _32_BIT_MASK || rv->u.max == _64_BIT_MASK;
+	ensures frame_s:    rv->s == \old(rv->s);
+	ensures frame_mask: rv->mask == \old(rv->mask);
+	ensures frame_v:    rv->v == \old(rv->v);
+	ensures uord:       unsigned_range_ordering(rv);
+	ensures uwidth:     unsigned_range_within_width(rv, mask);
 */
 void eval_umax_bound(struct bpf_reg_val *rv, uint64_t mask)
 {

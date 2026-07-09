@@ -7,15 +7,18 @@
 	requires \valid(rv);
 	terminates \true;
 	assigns rv->u.min, rv->u.max, rv->s.min, rv->s.max;
-	ensures rv->u.min == 0 && rv->u.max == mask;
-	ensures rv->u.max == _32_BIT_MASK || rv->u.max == _64_BIT_MASK;
-	ensures mask == _32_BIT_MASK ==> rv->s.min == INT32_MIN && rv->s.max == INT32_MAX;
-	ensures mask == _64_BIT_MASK ==> rv->s.min == INT64_MIN && rv->s.max == INT64_MAX;
-	ensures rv->mask == \old(rv->mask);
-	ensures rv->v == \old(rv->v);
-	ensures range_ordering(rv);
-	ensures range_validity(rv, mask);
-	ensures range_within_width(rv, mask);
+
+	ensures ufull:      rv->u.min == 0 && rv->u.max == mask;
+	ensures umax_ok:    rv->u.max == _32_BIT_MASK || rv->u.max == _64_BIT_MASK;
+	ensures sfull32:    mask == _32_BIT_MASK ==> rv->s.min == INT32_MIN && rv->s.max == INT32_MAX;
+	ensures sfull64:    mask == _64_BIT_MASK ==> rv->s.min == INT64_MIN && rv->s.max == INT64_MAX;
+	ensures frame_mask: rv->mask == \old(rv->mask);
+	ensures frame_v:    rv->v == \old(rv->v);
+	ensures uord:       unsigned_range_ordering(rv);
+	ensures sord:       signed_range_ordering(rv);
+	ensures valid:      range_validity(rv, mask);
+	ensures uwidth:     unsigned_range_within_width(rv, mask);
+	ensures swidth:     signed_range_within_width(rv, mask);
 */
 void eval_max_bound(struct bpf_reg_val *rv, uint64_t mask)
 {
