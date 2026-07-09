@@ -2,6 +2,7 @@
 #define EVAL_FILL_MAX_BOUND_H
 
 #include "../../common/shared.h"
+#include "../../common/specs.h"
 
 void eval_fill_max_bound(struct bpf_reg_val *rv, uint64_t mask);
 

@@ -15,8 +15,10 @@
 	ensures rv->v.type == RTE_BPF_ARG_RAW;
 	ensures rv->v.size == \old(rv->v.size);
 	ensures rv->v.buf_size == \old(rv->v.buf_size);
-	ensures rv->u.min <= rv->u.max;
-	ensures rv->s.min <= rv->s.max;
+	ensures range_ordering(rv);
+	ensures range_validity(rv, mask);
+	ensures range_within_width(rv, mask);
+	ensures is_scalar_or_pointer(rv->v.type);
 */
 void eval_fill_max_bound(struct bpf_reg_val *rv, uint64_t mask)
 {

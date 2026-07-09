@@ -3,6 +3,7 @@
 
 #include <stdint.h>
 #include <stddef.h>
+#include "fixes.h"
 
 #define _32_BIT_MASK 0x00000000FFFFFFFFULL
 #define _64_BIT_MASK 0xFFFFFFFFFFFFFFFFULL

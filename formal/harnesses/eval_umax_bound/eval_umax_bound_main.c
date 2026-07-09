@@ -4,8 +4,10 @@
 int main(void)
 {
 	struct bpf_reg_val rv;
-	eval_umax_bound(&rv, _32_BIT_MASK);
-	eval_umax_bound(&rv, _64_BIT_MASK);
+	uint64_t mask;
+	//@ admit mask == _32_BIT_MASK || mask == _64_BIT_MASK;
+	eval_umax_bound(&rv, mask);
+	eval_umax_bound(&rv, mask);
 
 	return 0;
 }

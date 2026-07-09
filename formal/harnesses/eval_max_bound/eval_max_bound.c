@@ -13,8 +13,9 @@
 	ensures mask == _64_BIT_MASK ==> rv->s.min == INT64_MIN && rv->s.max == INT64_MAX;
 	ensures rv->mask == \old(rv->mask);
 	ensures rv->v == \old(rv->v);
-	ensures rv->u.min <= rv->u.max;
-	ensures rv->s.min <= rv->s.max;
+	ensures range_ordering(rv);
+	ensures range_validity(rv, mask);
+	ensures range_within_width(rv, mask);
 */
 void eval_max_bound(struct bpf_reg_val *rv, uint64_t mask)
 {

@@ -5,3 +5,11 @@ frama-c -rte -wp -wp-prover alt-ergo,z3,cvc5 -wp-timeout 20 \
 	harnesses/eval_apply_mask/eval_apply_mask.c \
 	harnesses/eval_smax_bound/eval_smax_bound.c
 ```
+for the original (not fixed) code, or run
+```
+frama-c -cpp-extra-args=-DALL_FIXES -rte -wp -wp-prover alt-ergo,z3,cvc5 -wp-timeout 20 \
+        harnesses/eval_apply_mask/eval_apply_mask_main.c \
+        harnesses/eval_apply_mask/eval_apply_mask.c \
+        harnesses/eval_smax_bound/eval_smax_bound.c;
+```
+for the fixed code.

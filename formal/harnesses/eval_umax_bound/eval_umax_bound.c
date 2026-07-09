@@ -10,7 +10,8 @@
 	ensures rv->s == \old(rv->s);
 	ensures rv->mask == \old(rv->mask);
 	ensures rv->v == \old(rv->v);
-	ensures rv->u.min <= rv->u.max;
+	ensures unsigned_range_ordering(rv);
+	ensures unsigned_range_within_width(rv, mask);
 */
 void eval_umax_bound(struct bpf_reg_val *rv, uint64_t mask)
 {
