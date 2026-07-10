@@ -308,6 +308,23 @@ axiomatic ArshShift {
 	axiom asr_both_neg:
 		\forall integer a, b, p, q;
 		a <= b && b < 0 && 0 <= p <= q ==> (a >> p) <= (b >> q);
+	// The FIX_ARSH_32EXT_SHL dance shifts the canonical int32 up by 32
+	// in uint64: for negative v the PO term
+	// to_sint64(to_uint64(lsl(to_uint64(v), 32))) can only collapse by
+	// unfolding to_uint64's +/-2^64 recursion ~2^32 times — impossible
+	// first-order, so the identity is supplied whole (int64_t binder so
+	// the trigger matches the machine-term shape verbatim).
+	axiom shl32_ext_id:
+		\forall int64_t v;
+		-0x80000000 <= v < 0x80000000 ==>
+		(int64_t)(((uint64_t)v) << 32) == v * 0x100000000;
+	// De-scaling: floor((v*2^32) / 2^w) == floor(v / 2^(w-32)); with
+	// w == q+32 this turns the 32ext-shifted arithmetic shift back into
+	// the bare v >> q the asr_* axioms reason about.
+	axiom asr_descale32:
+		\forall integer v, w;
+		-0x80000000 <= v < 0x80000000 && 32 <= w <= 63 ==>
+		((v * 0x100000000) >> w) == (v >> (w - 32));
 }
 */
 

@@ -141,7 +141,12 @@ verify -cpp-extra-args=-DALL_FIXES -wp-timeout 600 -wp-split \
 	harnesses/eval_smax_bound/eval_smax_bound.c \
 	harnesses/eval_umax_bound/eval_umax_bound.c
 
-verify -cpp-extra-args=-DALL_FIXES -wp-timeout 600 -wp-split \
+# eval_add: deliberately NOT split. Its ssound core (quantified wrap
+# analysis x sext32 congruences) lives whole in every split leaf — 11 of
+# 1134 parts time out at 600s on both machines — while the monolith
+# proves in one Z3 search: 1'42" (server, Z3 4.16.0), 8'55" (MacBook,
+# Z3 4.15.4). Budget sized ~5x the slower machine's proof time.
+verify -cpp-extra-args=-DALL_FIXES -wp-timeout 3000 \
 	-wp-fct eval_add \
 	harnesses/eval_add/eval_add_main.c \
 	harnesses/eval_add/eval_add.c \
