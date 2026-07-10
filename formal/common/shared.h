@@ -56,4 +56,9 @@ struct bpf_reg_val {
 		_a_min < _b_min ? _a_min : _b_min; \
 	})
 
+#define CHAR_BIT  __CHAR_BIT__
+
+#define	RTE_LEN2MASK(ln, tp)	\
+	((tp)((uint64_t)-1 >> (sizeof(uint64_t) * CHAR_BIT - (ln))))
+
 #endif /* SHARED_H */

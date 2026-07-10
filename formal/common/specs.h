@@ -167,6 +167,123 @@ axiomatic LandWrapTop {
 // Single shared definition, used by the eval_* soundness predicates.
 logic integer to_signed(integer v, integer msk) =
       v <= (msk >> 1) ? v : v - (msk + 1);
+
+// Operand width in bits for the two supported masks (shift-amount bound).
+logic integer op_bits(integer msk) =
+      msk == _32_BIT_MASK ? 32 : 64;
+*/
+
+/*
+ * Variable-amount shifts are nonlinear (x << y == x * 2^y), so WP's SMT
+ * back-ends cannot reason about them: even `u.min <= u.max` after a shift
+ * is out of reach. Same remedy as the land_* family — trusted axioms
+ * giving the linear facts the solvers need. All CBMC-checked over the full
+ * domain (x in [0,2^64), shift in [0,64), products modelled in __int128).
+ * Non-negative operands only, which is all the eval_* shift paths use.
+ */
+/*@
+axiomatic LenShift {
+	axiom lsl_nonneg:
+		\forall integer x, y; 0 <= x && 0 <= y ==> 0 <= (x << y);
+	axiom lsl_val_mono:
+		\forall integer a, b, y;
+		0 <= a <= b && 0 <= y ==> (a << y) <= (b << y);
+	axiom lsl_amt_mono:
+		\forall integer x, p, q;
+		0 <= x && 0 <= p <= q ==> (x << p) <= (x << q);
+	// Combined monotonicity: triggers on the two shift terms that actually
+	// occur (min<<min-shift, max<<max-shift) with no synthesised
+	// intermediate, so e-matching can fire it directly.
+	axiom lsl_both_mono:
+		\forall integer a, b, p, q;
+		0 <= a <= b && 0 <= p <= q ==> (a << p) <= (b << q);
+	axiom lsl_width_bound:
+		\forall integer x, k, w;
+		0 <= k <= w && 0 <= x && x <= (1 << (w - k)) - 1
+		==> (x << k) <= (1 << w) - 1;
+	axiom lsr_shrink:
+		\forall integer x, y; 0 <= x && 0 <= y ==> 0 <= (x >> y) <= x;
+	axiom lsr_val_mono:
+		\forall integer a, b, y;
+		0 <= a <= b && 0 <= y ==> (a >> y) <= (b >> y);
+	axiom lsr_amt_anti:
+		\forall integer x, p, q;
+		0 <= x && 0 <= p <= q ==> (x >> q) <= (x >> p);
+	// Machine-form width bound, mask-concrete so no free variable needs
+	// instantiating: the guard term matches RTE_LEN2MASK's exact PO shape
+	// `(2^64-1) >> (64-(opsz-k))`, and the conclusion is the literal mask.
+	// (The 64-bit all-ones literal is deliberate — that is the term WP
+	// emits for RTE_LEN2MASK, so the trigger fires.)
+	axiom lsl_width_32:
+		\forall integer x, k;
+		0 <= k && k < 32 &&
+		0 <= x && x <= (0xFFFFFFFFFFFFFFFF >> (64 - (32 - k)))
+		==> (x << k) <= 0xFFFFFFFF;
+	axiom lsl_width_64:
+		\forall integer x, k;
+		0 <= k && k < 64 &&
+		0 <= x && x <= (0xFFFFFFFFFFFFFFFF >> (64 - (64 - k)))
+		==> (x << k) <= 0xFFFFFFFFFFFFFFFF;
+	// Signed-branch support (eval_lsh). All CBMC-checked over the full
+	// domain (axiom_validation/validate_specs_axioms.c, as is the whole
+	// axiomatic).
+	// The sign guard `(uint64_t)s.min >> (opsz-1) == 0` implies
+	// s.min >= 0: a negative int64 wraps to >= 2^63 under to_uint64, and
+	// 2^63 >> w != 0 for any w <= 63. The shift amount w is kept
+	// SYMBOLIC on purpose: with a constant amount Qed normalises
+	// `(x >> 31) == 0` into a `land(-2^31, x) == 0` bitmask test, which
+	// no longer matches the goal's `lsr(to_uint64(s.min), opsz-1) == 0`
+	// term, and the axiom can never fire. Quantifying over int64_t bakes
+	// the +2^64 wrap into the axiom (the provers time out re-deriving it
+	// from to_uint64's recursive definition).
+	axiom lsr_sign_any:
+		\forall int64_t v; \forall integer w;
+		31 <= w <= 63 && (((uint64_t)v) >> w) == 0 ==> 0 <= v;
+	// RTE_LEN2MASK(n, int64_t) shows up as to_sint64(lsr(allones, 64-n));
+	// with n <= 63 the shifted value is <= INT64_MAX, which lets the
+	// provers strip the to_sint64 wrapper (id_sint64) and expose the bare
+	// lsr term the width axioms below trigger on.
+	axiom lsr_allones_sint:
+		\forall integer k;
+		1 <= k <= 63
+		==> 0 <= (0xFFFFFFFFFFFFFFFF >> k) <= 0x7FFFFFFFFFFFFFFF;
+	// 32-bit refinement of the same shape: the signed guard's
+	// RTE_LEN2MASK(32 - u.max - 1, int64_t) term has shift amounts
+	// >= 33, pinning the bound (and hence s.max, and hence v <= s.max in
+	// the soundness quantifier) under 2^31 so the land_*_u32 identity
+	// axioms can fire. lsr_amt_anti cannot substitute: its conclusion
+	// would need the ground term `allones >> 33`, which never occurs in
+	// the POs.
+	axiom lsr_allones_33:
+		\forall integer k;
+		33 <= k <= 63
+		==> (0xFFFFFFFFFFFFFFFF >> k) <= 0x7FFFFFFF;
+	// Signed width bounds, mask-concrete like lsl_width_32/64. The
+	// hypothesis is written in the exact shape of the signed overflow
+	// guard `s.max < RTE_LEN2MASK(opsz - u.max - 1, int64_t)`, i.e.
+	// strict `<` against `allones >> (64 - (W - k - 1))` = 2^(W-k-1)-1,
+	// so x <= 2^(W-k-1)-2 and x*2^k <= 2^(W-1) - 2^(k+1) < 2^(W-1).
+	axiom lsl_swidth_32:
+		\forall integer x, k;
+		0 <= k && k <= 30 &&
+		0 <= x && x < (0xFFFFFFFFFFFFFFFF >> (64 - (32 - k - 1)))
+		==> (x << k) <= 0x7FFFFFFF;
+	axiom lsl_swidth_64:
+		\forall integer x, k;
+		0 <= k && k <= 62 &&
+		0 <= x && x < (0xFFFFFFFFFFFFFFFF >> (64 - (64 - k - 1)))
+		==> (x << k) <= 0x7FFFFFFFFFFFFFFF;
+}
+
+// Ground values of the two mask half-shifts, i.e. msk >> 1 for the two
+// supported masks. NOT trusted axioms: WP proves both by Qed constant
+// folding. They are stated so the equations also exist in POs where msk
+// stays SYMBOLIC (e.g. the monolithic usound/ssound goals): there Qed
+// cannot fold lsr(msk, 1) per mask case, the provers have no evaluation
+// axioms for lsr on literals, and to_signed's branch condition becomes
+// undecidable without them.
+lemma lsr_half_32: (0xFFFFFFFF >> 1) == 0x7FFFFFFF;
+lemma lsr_half_64: (0xFFFFFFFFFFFFFFFF >> 1) == 0x7FFFFFFFFFFFFFFF;
 */
 
 #endif /* SPECS_H */
