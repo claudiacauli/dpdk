@@ -7,6 +7,8 @@
 #  define FIX_ADD_SIGNED_32
 #  define FIX_SUB_SIGNED_32
 #  define FIX_ARSH_32EXT_SHL
+#  define FIX_ARSH_SIGNED_MASK
+#  define FIX_ARSH_UNSIGNED_SIGN
 
 #endif
 

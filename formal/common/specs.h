@@ -282,6 +282,34 @@ axiomatic LenShift {
 		0 <= x && x < (0xFFFFFFFFFFFFFFFF >> (64 - (64 - k - 1)))
 		==> (x << k) <= 0x7FFFFFFFFFFFFFFF;
 }
+*/
+
+// Arithmetic-shift support (eval_arsh): the LenShift axioms are all
+// 0 <= x guarded, but ARSH shifts NEGATIVE canonical values, where
+// ACSL's >> is floor division (exactly the machine's arithmetic
+// shift). Value-monotonicity holds for all signs; amount-monotonicity
+// FLIPS for negatives (a bigger shift moves the value up, toward -1);
+// and asr_both_neg is the combined form triggering on the two terms
+// the eval_arsh POs actually contain, (min >> min-shift) and
+// (max >> max-shift) — mirroring lsl_both_mono / lsr_both_anti. All
+// CBMC-checked over the full int64 domain
+// (axiom_validation/validate_specs_axioms.c).
+/*@
+axiomatic ArshShift {
+	axiom asr_val_mono:
+		\forall integer a, b, y;
+		a <= b && 0 <= y ==> (a >> y) <= (b >> y);
+	axiom asr_amt_mono_neg:
+		\forall integer x, p, q;
+		x < 0 && 0 <= p <= q ==> (x >> p) <= (x >> q);
+	axiom asr_neg_bounds:
+		\forall integer x, y;
+		x < 0 && 0 <= y ==> x <= (x >> y) <= -1;
+	axiom asr_both_neg:
+		\forall integer a, b, p, q;
+		a <= b && b < 0 && 0 <= p <= q ==> (a >> p) <= (b >> q);
+}
+*/
 
 // Ground values of the two mask half-shifts, i.e. msk >> 1 for the two
 // supported masks. NOT trusted axioms: WP proves both by Qed constant
@@ -290,6 +318,7 @@ axiomatic LenShift {
 // cannot fold lsr(msk, 1) per mask case, the provers have no evaluation
 // axioms for lsr on literals, and to_signed's branch condition becomes
 // undecidable without them.
+/*@
 lemma lsr_half_32: (0xFFFFFFFF >> 1) == 0x7FFFFFFF;
 lemma lsr_half_64: (0xFFFFFFFFFFFFFFFF >> 1) == 0x7FFFFFFFFFFFFFFF;
 */

@@ -134,7 +134,7 @@ verify -cpp-extra-args=-DALL_FIXES -wp-timeout 600 \
 	harnesses/eval_apply_mask/eval_apply_mask.c \
 	harnesses/eval_smax_bound/eval_smax_bound.c
 
-verify -cpp-extra-args=-DALL_FIXES -wp-timeout 600 \
+verify -cpp-extra-args=-DALL_FIXES -wp-timeout 600 -wp-split \
 	-wp-fct eval_sub \
 	harnesses/eval_sub/eval_sub_main.c \
 	harnesses/eval_sub/eval_sub.c \
@@ -165,5 +165,11 @@ verify -cpp-extra-args=-DALL_FIXES -wp-timeout 600 -wp-split \
 	harnesses/eval_max_bound/eval_max_bound.c \
 	harnesses/eval_smax_bound/eval_smax_bound.c \
 	harnesses/eval_umax_bound/eval_umax_bound.c
+
+verify -cpp-extra-args=-DALL_FIXES -wp-timeout 600 -wp-split \
+	-wp-fct eval_arsh \
+	harnesses/eval_arsh/eval_arsh_main.c \
+	harnesses/eval_arsh/eval_arsh.c \
+	harnesses/eval_max_bound/eval_max_bound.c
 
 exit $FAILED
