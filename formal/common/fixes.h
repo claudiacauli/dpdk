@@ -5,6 +5,7 @@
 #ifdef ALL_FIXES
 #  define FIX_APPLY_MASK_SIGNED
 #  define FIX_ADD_SIGNED_32
+#  define FIX_SUB_SIGNED_32
 
 #endif
 

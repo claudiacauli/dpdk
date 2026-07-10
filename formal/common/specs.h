@@ -13,10 +13,22 @@ predicate signed_range_ordering(struct bpf_reg_val *rv) =
 predicate range_ordering(struct bpf_reg_val *rv) =
 	unsigned_range_ordering(rv) && signed_range_ordering(rv);
 
+// The register is "sign-determinate": the tracked ranges pin down which
+// side of the sign boundary the value lives on.
+predicate sign_determinate(struct bpf_reg_val *rv, uint64_t mask) =
+	rv->s.min >= 0 || rv->s.max < 0 ||
+	rv->u.min > (mask>>1) || rv->u.max <= (mask>>1);
+
+predicate min_sign_consistency(struct bpf_reg_val *rv, uint64_t mask) =
+	sign_determinate(rv, mask) ==>
+		rv->u.min == ((uint64_t)rv->s.min & mask);
+
+predicate max_sign_consistency(struct bpf_reg_val *rv, uint64_t mask) =
+	sign_determinate(rv, mask) ==>
+		rv->u.max == ((uint64_t)rv->s.max & mask);
+
 predicate range_sign_consistency(struct bpf_reg_val *rv, uint64_t mask) =
-	(rv->s.min >= 0 || rv->s.max < 0 || rv->u.min > (mask>>1) || rv->u.max <= (mask>>1))
-	==> (rv->u.min == ((uint64_t)rv->s.min & mask) &&
-	     rv->u.max == ((uint64_t)rv->s.max & mask));
+	min_sign_consistency(rv, mask) && max_sign_consistency(rv, mask);
 
 predicate range_validity(struct bpf_reg_val *rv, uint64_t mask) =
 	rv->v.type == RTE_BPF_ARG_UNDEF ||
@@ -148,6 +160,13 @@ axiomatic LandWrapTop {
 		0xFFFFFFFF00000000 <= x <= 0xFFFFFFFFFFFFFFFF ==>
 		(x & 0xFFFFFFFF) == x - 0xFFFFFFFF00000000;
 }
+*/
+
+/*@
+// Sign-extended (canonical) value of a w-bit pattern v, for msk = 2^w - 1.
+// Single shared definition, used by the eval_* soundness predicates.
+logic integer to_signed(integer v, integer msk) =
+      v <= (msk >> 1) ? v : v - (msk + 1);
 */
 
 #endif /* SPECS_H */

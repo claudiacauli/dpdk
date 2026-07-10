@@ -15,15 +15,24 @@
 	ensures ukeep32:    mask == _32_BIT_MASK && (\old(rv->u.min) <= mask && \old(rv->u.max) <= mask)
 	 	==> rv->u.min == \old(rv->u.min) && rv->u.max == \old(rv->u.max);
 	ensures mask_set:   rv->mask == mask;
+	ensures mask_ok:    rv->mask == _32_BIT_MASK || rv->mask == _64_BIT_MASK;
 	ensures smin32:     mask == _32_BIT_MASK ==> rv->s.min == INT32_MIN || rv->s.min == \old(rv->s.min);
 	ensures smax32:     mask == _32_BIT_MASK ==> rv->s.max == INT32_MAX || rv->s.max == \old(rv->s.max);
 	ensures smin64:     mask == _64_BIT_MASK ==> rv->s.min == INT64_MIN || rv->s.min == \old(rv->s.min);
 	ensures smax64:     mask == _64_BIT_MASK ==> rv->s.max == INT64_MAX || rv->s.max == \old(rv->s.max);
-	ensures frame_v:    rv->v == \old(rv->v);
-	ensures ord64:      mask == _64_BIT_MASK ==> range_ordering(rv);
-	ensures ord32:      mask == _32_BIT_MASK ==> range_ordering(rv);
+	ensures unchanged_v:    rv->v == \old(rv->v);
+	ensures uord:       unsigned_range_ordering(rv);
+	ensures sord:       signed_range_ordering(rv);
 	ensures uwidth:     unsigned_range_within_width(rv, mask);
 	ensures swidth:     signed_range_within_width(rv, mask);
+	ensures consist_min: \old(range_sign_consistency(rv, mask)) &&
+			\old(range_within_width(rv, mask))
+			==> min_sign_consistency(rv, mask);
+	ensures consist_max: \old(range_sign_consistency(rv, mask)) &&
+			\old(range_within_width(rv, mask))
+			==> max_sign_consistency(rv, mask);
+	ensures usound:     eval_apply_mask_unsigned_soundness(\old(*rv), *rv, mask);
+	ensures ssound:     eval_apply_mask_signed_soundness(\old(*rv), *rv, mask);
 */
 void eval_apply_mask(struct bpf_reg_val *rv, uint64_t mask)
 {

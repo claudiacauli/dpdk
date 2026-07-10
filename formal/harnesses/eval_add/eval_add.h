@@ -11,8 +11,7 @@ predicate eval_add_unsigned_soundness(struct bpf_reg_val od, struct bpf_reg_val 
 		od.u.min <= x <= od.u.max && os.u.min <= y <= os.u.max
 			==> nw.u.min <= ((x + y) & msk) <= nw.u.max;
 
-logic integer to_signed(integer v, integer msk) =
-      v <= (msk >> 1) ? v : v - (msk + 1);
+// to_signed comes from common/specs.h
 
 predicate eval_add_signed_soundness(struct bpf_reg_val od, struct bpf_reg_val os,
                                     struct bpf_reg_val nw, uint64_t msk) =

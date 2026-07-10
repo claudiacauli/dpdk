@@ -8,9 +8,9 @@
 
 	ensures ufull:      rv->u.min == 0 && rv->u.max == mask;
 	ensures umax_ok:    rv->u.max == _32_BIT_MASK || rv->u.max == _64_BIT_MASK;
-	ensures frame_s:    rv->s == \old(rv->s);
-	ensures frame_mask: rv->mask == \old(rv->mask);
-	ensures frame_v:    rv->v == \old(rv->v);
+	ensures unchanged_s:    rv->s == \old(rv->s);
+	ensures unchanged_mask: rv->mask == \old(rv->mask);
+	ensures unchanged_v:    rv->v == \old(rv->v);
 	ensures uord:       unsigned_range_ordering(rv);
 	ensures uwidth:     unsigned_range_within_width(rv, mask);
 */

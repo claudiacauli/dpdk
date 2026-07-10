@@ -14,11 +14,13 @@
 	ensures mask_set:   rv->mask == mask;
 	ensures mask_ok:    rv->mask == _32_BIT_MASK || rv->mask == _64_BIT_MASK;
 	ensures type_raw:   rv->v.type == RTE_BPF_ARG_RAW;
-	ensures frame_size: rv->v.size == \old(rv->v.size);
-	ensures frame_buf:  rv->v.buf_size == \old(rv->v.buf_size);
+	ensures unchanged_size: rv->v.size == \old(rv->v.size);
+	ensures unchanged_buf:  rv->v.buf_size == \old(rv->v.buf_size);
 	ensures uord:       unsigned_range_ordering(rv);
 	ensures sord:       signed_range_ordering(rv);
 	ensures valid:      range_validity(rv, mask);
+	ensures consist_min: min_sign_consistency(rv, mask);
+	ensures consist_max: max_sign_consistency(rv, mask);
 	ensures uwidth:     unsigned_range_within_width(rv, mask);
 	ensures swidth:     signed_range_within_width(rv, mask);
 	ensures type_ok:    is_scalar_or_pointer(rv->v.type);

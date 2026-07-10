@@ -12,11 +12,13 @@
 	ensures umax_ok:    rv->u.max == _32_BIT_MASK || rv->u.max == _64_BIT_MASK;
 	ensures sfull32:    mask == _32_BIT_MASK ==> rv->s.min == INT32_MIN && rv->s.max == INT32_MAX;
 	ensures sfull64:    mask == _64_BIT_MASK ==> rv->s.min == INT64_MIN && rv->s.max == INT64_MAX;
-	ensures frame_mask: rv->mask == \old(rv->mask);
-	ensures frame_v:    rv->v == \old(rv->v);
+	ensures unchanged_mask: rv->mask == \old(rv->mask);
+	ensures unchanged_v:    rv->v == \old(rv->v);
 	ensures uord:       unsigned_range_ordering(rv);
 	ensures sord:       signed_range_ordering(rv);
 	ensures valid:      range_validity(rv, mask);
+	ensures consist_min: min_sign_consistency(rv, mask);
+	ensures consist_max: max_sign_consistency(rv, mask);
 	ensures uwidth:     unsigned_range_within_width(rv, mask);
 	ensures swidth:     signed_range_within_width(rv, mask);
 */

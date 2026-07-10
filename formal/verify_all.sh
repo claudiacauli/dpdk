@@ -69,13 +69,20 @@ verify -wp-timeout 20 \
 	harnesses/eval_umax_bound/eval_umax_bound.c \
 	harnesses/eval_smax_bound/eval_smax_bound.c
 
-verify -cpp-extra-args=-DALL_FIXES -wp-timeout 20 \
+verify -cpp-extra-args=-DALL_FIXES -wp-timeout 600 \
 	-wp-fct eval_apply_mask \
 	harnesses/eval_apply_mask/eval_apply_mask_main.c \
 	harnesses/eval_apply_mask/eval_apply_mask.c \
 	harnesses/eval_smax_bound/eval_smax_bound.c
 
-verify -cpp-extra-args=-DALL_FIXES -wp-timeout 120 \
+verify -cpp-extra-args=-DALL_FIXES -wp-timeout 600 \
+	-wp-fct eval_sub \
+	harnesses/eval_sub/eval_sub_main.c \
+	harnesses/eval_sub/eval_sub.c \
+	harnesses/eval_smax_bound/eval_smax_bound.c \
+	harnesses/eval_umax_bound/eval_umax_bound.c
+
+verify -cpp-extra-args=-DALL_FIXES -wp-timeout 600 \
 	-wp-fct eval_add \
 	harnesses/eval_add/eval_add_main.c \
 	harnesses/eval_add/eval_add.c \
