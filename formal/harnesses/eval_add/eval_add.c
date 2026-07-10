@@ -7,6 +7,12 @@
 /*@
 	requires msk == _32_BIT_MASK || msk == _64_BIT_MASK;
 	requires \valid(rd) && \valid(rs);
+	// The real caller (eval_alu) always passes rs as a fresh local copy,
+	// so rd and rs never overlap — even for `add rX, rX`. WP's typed
+	// memory model would otherwise admit partial overlaps no C caller
+	// can produce; this replaces the former `admit sep_else` (same fact,
+	// but proved against the caller contract instead of trusted mid-body).
+	requires \separated(rd, rs);
 	requires is_scalar_or_pointer(rs->v.type) && is_scalar_or_pointer(rd->v.type);
 	requires range_validity(rd, msk) && range_validity(rs, msk);
 	requires range_within_width(rd, msk) && range_within_width(rs, msk);
@@ -33,13 +39,6 @@ void eval_add(struct bpf_reg_val *rd, const struct bpf_reg_val *rs, uint64_t msk
 			*rd = rs_buf;
 			rs = &rs_buf;
 		} else {
-			/*
-			 * rs is a pointer here and rd is not, so their v.type
-			 * values differ => they are distinct objects. WP cannot
-			 * derive separation from a value mismatch, so trust it
-			 * (needed for the field read-backs below).
-			 */
-			//@ admit sep_else: \separated(rd, rs);
 			/* scalar + pointer is a pointer of the same type */
 			rd->v = rs->v;
 		}

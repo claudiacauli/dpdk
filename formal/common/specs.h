@@ -209,6 +209,14 @@ axiomatic LenShift {
 	axiom lsr_amt_anti:
 		\forall integer x, p, q;
 		0 <= x && 0 <= p <= q ==> (x >> q) <= (x >> p);
+	// Combined anti-monotonicity, the lsr twin of lsl_both_mono: after
+	// eval_rsh the POs contain exactly (min >> max-shift) and
+	// (max >> min-shift); composing lsr_val_mono with lsr_amt_anti would
+	// need the intermediate term (max >> max-shift), which never occurs,
+	// so e-matching cannot chain them.
+	axiom lsr_both_anti:
+		\forall integer a, b, p, q;
+		0 <= a <= b && 0 <= p <= q ==> (a >> q) <= (b >> p);
 	// Machine-form width bound, mask-concrete so no free variable needs
 	// instantiating: the guard term matches RTE_LEN2MASK's exact PO shape
 	// `(2^64-1) >> (64-(opsz-k))`, and the conclusion is the literal mask.
