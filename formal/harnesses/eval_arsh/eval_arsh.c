@@ -121,5 +121,21 @@ void eval_arsh(struct bpf_reg_val *rd, const struct bpf_reg_val *rs, size_t opsz
 		rd->s.min = (int32_t)(uint32_t)rd->s.min;
 		rd->s.max = (int32_t)(uint32_t)rd->s.max;
 	}
+
+	/*
+	 * WP stepping stones: the whole 32ext dance (<<32, >>(q+32), & msk,
+	 * sext32) nets out to a plain arithmetic shift of the entry value —
+	 * these identities hand the ensures the bare `v >> q` terms the
+	 * asr_* axioms reason about, instead of the four-layer composition.
+	 * Only true with the mask fix applied, hence inside the gate.
+	 */
+	/*@ assert smax_shift_id:
+	      rd->s.max == (\at(rd->s.max, Pre) < 0
+	                    ? \at(rd->s.max, Pre) >> \at(rs->u.max, Pre)
+	                    : \at(rd->s.max, Pre) >> \at(rs->u.min, Pre)); */
+	/*@ assert smin_shift_id:
+	      rd->s.min == (\at(rd->s.min, Pre) < 0
+	                    ? \at(rd->s.min, Pre) >> \at(rs->u.min, Pre)
+	                    : \at(rd->s.min, Pre) >> \at(rs->u.max, Pre)); */
 #endif
 }

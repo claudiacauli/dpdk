@@ -61,4 +61,22 @@ struct bpf_reg_val {
 #define	RTE_LEN2MASK(ln, tp)	\
 	((tp)((uint64_t)-1 >> (sizeof(uint64_t) * CHAR_BIT - (ln))))
 
+#ifdef __FRAMAC__
+/*@
+	requires v != 0;
+	terminates \true;
+	assigns \nothing;
+	exits \false;
+
+	ensures 0 <= \result <= 63;
+	ensures clz_window: (v >> (63 - \result)) == 1;
+*/
+unsigned int rte_clz64(uint64_t v);
+#else
+static inline unsigned int rte_clz64(uint64_t v)
+{
+	return (unsigned int)__builtin_clzll(v);
+}
+#endif
+
 #endif /* SHARED_H */

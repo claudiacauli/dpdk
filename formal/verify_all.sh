@@ -1,5 +1,31 @@
 #!/usr/bin/env bash
 
+# Usage: verify_all.sh [--fixes|--no-fixes] [--only <function>]
+#
+# --no-fixes (the DEFAULT) verifies the faithful port of the upstream
+# code: the goals covered by FIX_* gates are then EXPECTED to fail —
+# that failure list is the bug report. --fixes (-DALL_FIXES) verifies
+# the fixed semantics and is the configuration expected to be fully
+# green; use it for certified runs.
+#
+# --only eval_lsh runs just that harness's block (the lemma pass still
+# runs: lemmas are assumed everywhere, so they must be proved even in a
+# single-method run).
+FIXES=
+ONLY=
+MODE=--no-fixes
+while [ $# -gt 0 ]; do
+	case "$1" in
+	--fixes)    FIXES=-cpp-extra-args=-DALL_FIXES; MODE=--fixes ;;
+	--no-fixes) FIXES=; MODE=--no-fixes ;;
+	--only)     shift; ONLY=${1:?--only needs a function name} ;;
+	*) echo "usage: $0 [--fixes|--no-fixes] [--only <function>]" >&2
+	   exit 2 ;;
+	esac
+	shift
+done
+echo "mode: $MODE${ONLY:+ (only $ONLY)}"
+ONLY_MATCHED=
 
 FAILED=0
 
@@ -80,25 +106,38 @@ wp_pass() {
 # remainder pass covers everything else scheduled for the function:
 # RTE guards, stepping-stone asserts, assigns, call preconditions,
 # termination.
+#
+# Split control: put -wp-split in the block args to split EVERY pass, or
+# prefix the call with SPLIT_PROPS="p1 p2" to split only those
+# properties (eval_add needs usound split but ssound monolithic — the
+# two goals sit on opposite sides of the split trade-off).
 verify() {
-	local fct= impl= prev= f p props neg=
+	local split_props=${SPLIT_PROPS-}
+	SPLIT_PROPS=   # env-prefix assignments to functions persist in bash
+	local fct= impl= prev= f p props neg= extra
 	for f in "$@"; do
 		[ "$prev" = "-wp-fct" ] && fct=$f
 		prev=$f
 	done
+	if [ -n "$ONLY" ] && [ "$fct" != "$ONLY" ]; then
+		return 0
+	fi
+	ONLY_MATCHED=1
 	for f in "$@"; do
 		case "$f" in */"$fct".c) impl=$f ;; esac
 	done
 	props=$(grep -Eo 'ensures[[:space:]]+[A-Za-z_][A-Za-z_0-9]*[[:space:]]*:' "$impl" |
 		sed -E 's/ensures[[:space:]]+//; s/[[:space:]]*:$//')
 	for p in $props; do
-		wp_pass "$fct" "$p" "$@" -wp-prop "$p"
+		extra=
+		case " $split_props " in *" $p "*) extra=-wp-split ;; esac
+		wp_pass "$fct" "$p" "$@" $extra -wp-prop "$p"
 		neg="$neg${neg:+,}-$p"
 	done
 	wp_pass "$fct" "side-goals" "$@" -wp-prop="$neg"
 }
 
-# ACSL lemmas (common/specs.h) are hypotheses in every PO but are goals
+# ACSL lemmas (common/axioms.h) are hypotheses in every PO but are goals
 # in none of the -wp-fct passes below: discharge them once, up front.
 # Any single TU that includes specs.h works; use the lightest.
 wp_pass "specs.h" "lemmas" -wp-timeout 20 -wp-prop @lemma \
@@ -128,25 +167,53 @@ verify -wp-timeout 20 \
 	harnesses/eval_umax_bound/eval_umax_bound.c \
 	harnesses/eval_smax_bound/eval_smax_bound.c
 
-verify -cpp-extra-args=-DALL_FIXES -wp-timeout 600 \
+verify $FIXES -wp-timeout 60 \
+	-wp-fct eval_umax_bits \
+	harnesses/eval_umax_bits/eval_umax_bits_main.c \
+	harnesses/eval_umax_bits/eval_umax_bits.c
+
+verify $FIXES -wp-timeout 60 \
+	-wp-fct eval_uand_max \
+	harnesses/eval_uand_max/eval_uand_max_main.c \
+	harnesses/eval_uand_max/eval_uand_max.c \
+	harnesses/eval_umax_bits/eval_umax_bits.c
+
+# Deliberately WITHOUT eval_umax_bits.c: eval_and only needs the
+# contracts of its DIRECT callees (eval_uand_max, eval_smax_bound), and
+# umax_bits' .c would drag the ClzWindow axioms into every PO here.
+# -wp-split: the unsplit side-goals batch flips the uand_max
+# requires-instances past the timeout; split, all parts prove fast.
+verify $FIXES -wp-timeout 600 -wp-split \
+	-wp-fct eval_and \
+	harnesses/eval_and/eval_and_main.c \
+	harnesses/eval_and/eval_and.c \
+	harnesses/eval_uand_max/eval_uand_max.c \
+	harnesses/eval_smax_bound/eval_smax_bound.c
+
+verify $FIXES -wp-timeout 600 \
 	-wp-fct eval_apply_mask \
 	harnesses/eval_apply_mask/eval_apply_mask_main.c \
 	harnesses/eval_apply_mask/eval_apply_mask.c \
 	harnesses/eval_smax_bound/eval_smax_bound.c
 
-verify -cpp-extra-args=-DALL_FIXES -wp-timeout 600 -wp-split \
+# eval_sub: NOT split — measured on the certified run of 2026-07-10:
+# split, its ssound takes 30'49" across 378 parts and unchanged_v
+# 11'48"; monolithic the same goals prove in 14s and ~1s.
+verify $FIXES -wp-timeout 600 \
 	-wp-fct eval_sub \
 	harnesses/eval_sub/eval_sub_main.c \
 	harnesses/eval_sub/eval_sub.c \
 	harnesses/eval_smax_bound/eval_smax_bound.c \
 	harnesses/eval_umax_bound/eval_umax_bound.c
 
-# eval_add: deliberately NOT split. Its ssound core (quantified wrap
-# analysis x sext32 congruences) lives whole in every split leaf — 11 of
-# 1134 parts time out at 600s on both machines — while the monolith
-# proves in one Z3 search: 1'42" (server, Z3 4.16.0), 8'55" (MacBook,
-# Z3 4.15.4). Budget sized ~5x the slower machine's proof time.
-verify -cpp-extra-args=-DALL_FIXES -wp-timeout 3000 \
+# eval_add: ssound deliberately NOT split — its quantified wrap-core
+# lives whole in every split leaf (11 of 1134 parts time out at 600s on
+# both machines) while the monolith proves in one Z3 search (2'20"
+# MacBook / 1'42" server, with the arsh axioms scoped out of this TU —
+# see common/axioms_arsh.h). usound is the opposite: its monolith
+# flickers past 3000s while the 1134 split parts prove in minutes.
+SPLIT_PROPS=usound \
+verify $FIXES -wp-timeout 3000 \
 	-wp-fct eval_add \
 	harnesses/eval_add/eval_add_main.c \
 	harnesses/eval_add/eval_add.c \
@@ -155,7 +222,7 @@ verify -cpp-extra-args=-DALL_FIXES -wp-timeout 3000 \
 	harnesses/eval_smax_bound/eval_smax_bound.c \
 	harnesses/eval_umax_bound/eval_umax_bound.c
 
-verify -cpp-extra-args=-DALL_FIXES -wp-timeout 600 -wp-split \
+verify $FIXES -wp-timeout 600 -wp-split \
 	-wp-fct eval_lsh \
 	harnesses/eval_lsh/eval_lsh_main.c \
 	harnesses/eval_lsh/eval_lsh.c \
@@ -163,7 +230,7 @@ verify -cpp-extra-args=-DALL_FIXES -wp-timeout 600 -wp-split \
 	harnesses/eval_smax_bound/eval_smax_bound.c \
 	harnesses/eval_umax_bound/eval_umax_bound.c
 
-verify -cpp-extra-args=-DALL_FIXES -wp-timeout 600 -wp-split \
+verify $FIXES -wp-timeout 600 -wp-split \
 	-wp-fct eval_rsh \
 	harnesses/eval_rsh/eval_rsh_main.c \
 	harnesses/eval_rsh/eval_rsh.c \
@@ -171,10 +238,16 @@ verify -cpp-extra-args=-DALL_FIXES -wp-timeout 600 -wp-split \
 	harnesses/eval_smax_bound/eval_smax_bound.c \
 	harnesses/eval_umax_bound/eval_umax_bound.c
 
-verify -cpp-extra-args=-DALL_FIXES -wp-timeout 600 -wp-split \
+# 1200s: the slowest usound split part flickers at the 600s line under
+# load; uncontended it proves with margin at 1200.
+verify $FIXES -wp-timeout 1200 -wp-split \
 	-wp-fct eval_arsh \
 	harnesses/eval_arsh/eval_arsh_main.c \
 	harnesses/eval_arsh/eval_arsh.c \
 	harnesses/eval_max_bound/eval_max_bound.c
 
+if [ -n "$ONLY" ] && [ -z "$ONLY_MATCHED" ]; then
+	echo "error: --only $ONLY matched no verify block" >&2
+	FAILED=1
+fi
 exit $FAILED

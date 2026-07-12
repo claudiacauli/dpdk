@@ -3,6 +3,7 @@
 
 #include "../../common/shared.h"
 #include "../../common/specs.h"
+#include "../../common/axioms_arsh.h"
 
 /*@
 // Arithmetic right shift. ACSL's >> on mathematical integers IS floor

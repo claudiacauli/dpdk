@@ -9,6 +9,8 @@
 #  define FIX_ARSH_32EXT_SHL
 #  define FIX_ARSH_SIGNED_MASK
 #  define FIX_ARSH_UNSIGNED_SIGN
+#  define FIX_UMAX_BITS_32
+#  define FIX_AND_SIGNED_GUARD
 
 #endif
 
