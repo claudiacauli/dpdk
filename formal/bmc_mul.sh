@@ -20,14 +20,25 @@ SR="harnesses/eval_mul/eval_mul.c harnesses/eval_umax_bound/eval_umax_bound.c ha
 BMC=harnesses/eval_mul/eval_mul_bmc.c
 OUT=$(mktemp -d)
 
+# ESBMC's bundled clang can't find the system <stddef.h> on Linux
+# (its wrapper does #include_next with nothing to chain to). Add the
+# compiler's internal header dir so include_next resolves. Harmless on
+# macOS where the headers are already found.
+SYSINC=
+for d in "$(gcc -print-file-name=include 2>/dev/null)" \
+         "$(clang -print-resource-dir 2>/dev/null)/include"; do
+	[ -n "$d" ] && [ -f "$d/stddef.h" ] && SYSINC="$SYSINC -I$d"
+done
+
 cell() { # label  defs...
 	local label=$1; shift
 	local f="$OUT/$label"
-	esbmc "$@" --timeout "${TMO}s" $BMC $SR >"$f" 2>&1
+	esbmc "$@" $SYSINC --timeout "${TMO}s" $BMC $SR >"$f" 2>&1
 	local v
 	if   grep -q "VERIFICATION SUCCESSFUL" "$f"; then v="PASS"
 	elif grep -q "VERIFICATION FAILED"     "$f"; then v="FAIL"
 	elif grep -qi "Timed out"              "$f"; then v="TIMEOUT"
+	elif grep -qi "ERROR"                  "$f"; then v="ERROR(see file)"
 	else v="???"; fi
 	printf '%-28s %s\n' "$label" "$v"
 }

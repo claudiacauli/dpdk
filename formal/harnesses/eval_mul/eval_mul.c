@@ -69,6 +69,9 @@ void eval_mul(struct bpf_reg_val *rd, const struct bpf_reg_val *rs, size_t opsz,
 #else
 	} else if (rd->u.max <= msk >> opsz / 2 && rs->u.max <= msk >> opsz) {
 #endif
+		/* monotonicity stone: mul_mono fires here (only preconditions
+		 * in scope) but not inside the folded ordering/soundness goals */
+		/*@ assert u_mono: (rd->u.min * rs->u.min) <= (rd->u.max * rs->u.max); */
 		rd->u.max *= rs->u.max;
 		rd->u.min *= rs->u.min;
 	} else
@@ -108,6 +111,7 @@ void eval_mul(struct bpf_reg_val *rd, const struct bpf_reg_val *rs, size_t opsz,
 #else
 	} else if (rd->s.min >= 0 && rs->s.min >= 0) {
 #endif
+		/*@ assert s_mono: (rd->s.min * rs->s.min) <= (rd->s.max * rs->s.max); */
 		rd->s.max *= rs->s.max;
 		rd->s.min *= rs->s.min;
 	} else
