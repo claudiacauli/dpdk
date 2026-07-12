@@ -178,6 +178,12 @@ verify $FIXES -wp-timeout 60 \
 	harnesses/eval_uand_max/eval_uand_max.c \
 	harnesses/eval_umax_bits/eval_umax_bits.c
 
+verify $FIXES -wp-timeout 60 \
+	-wp-fct eval_uor_max \
+	harnesses/eval_uor_max/eval_uor_max_main.c \
+	harnesses/eval_uor_max/eval_uor_max.c \
+	harnesses/eval_umax_bits/eval_umax_bits.c
+
 # Deliberately WITHOUT eval_umax_bits.c: eval_and only needs the
 # contracts of its DIRECT callees (eval_uand_max, eval_smax_bound), and
 # umax_bits' .c would drag the ClzWindow axioms into every PO here.
@@ -188,6 +194,31 @@ verify $FIXES -wp-timeout 600 -wp-split \
 	harnesses/eval_and/eval_and_main.c \
 	harnesses/eval_and/eval_and.c \
 	harnesses/eval_uand_max/eval_uand_max.c \
+	harnesses/eval_smax_bound/eval_smax_bound.c
+
+# eval_or mirrors eval_and (direct callees eval_uor_max + eval_smax_bound;
+# umax_bits.c left out for the same ClzWindow reason). Only ssound needs
+# the opsz case split (its signed-OR round-trip resolves per concrete
+# mask); the bound goals prove faster monolithic.
+SPLIT_PROPS=ssound \
+verify $FIXES -wp-timeout 600 \
+	-wp-fct eval_or \
+	harnesses/eval_or/eval_or_main.c \
+	harnesses/eval_or/eval_or.c \
+	harnesses/eval_uor_max/eval_uor_max.c \
+	harnesses/eval_smax_bound/eval_smax_bound.c
+
+# eval_xor over-approximates the XOR by the OR estimate eval_uor_max
+# (a^b <= a|b), so it mirrors eval_or's TU (faithful port, no FIX gate).
+# BOTH soundness goals need the opsz case split — usound chains
+# lxor_le_lor through uor_cover, whose width bound only resolves per
+# concrete mask; the structural/bounds goals prove monolithic.
+SPLIT_PROPS="usound ssound" \
+verify $FIXES -wp-timeout 600 \
+	-wp-fct eval_xor \
+	harnesses/eval_xor/eval_xor_main.c \
+	harnesses/eval_xor/eval_xor.c \
+	harnesses/eval_uor_max/eval_uor_max.c \
 	harnesses/eval_smax_bound/eval_smax_bound.c
 
 verify $FIXES -wp-timeout 600 \

@@ -11,6 +11,9 @@
 #  define FIX_ARSH_UNSIGNED_SIGN
 #  define FIX_UMAX_BITS_32
 #  define FIX_AND_SIGNED_GUARD
+#  define FIX_MUL_UGUARD
+#  define FIX_MUL_SCONST
+#  define FIX_MUL_SGUARD
 
 #endif
 
