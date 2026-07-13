@@ -1,8 +1,9 @@
 #include "eval_and.h"
 #include "../eval_uand_max/eval_uand_max.h"
 #include "../eval_smax_bound/eval_smax_bound.h"
-/* LandCanon axioms are needed only by THIS proof (signed & in the
- * constants branch): include from the .c, not the header. */
+/* Axioms are include from the .c (and not the header) so consumers of the
+   contract don't drag them into their own PO search spaces. Do NOT move
+   this include to the header or it will slow down verification. */
 #include "../../common/axioms_and.h"
 
 /*@

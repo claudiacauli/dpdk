@@ -1,7 +1,7 @@
 #ifndef AXIOMS_ARSH_H
 #define AXIOMS_ARSH_H
 
-#include "shared.h"
+#include "../../common/shared.h"
 
 /*
  * Trusted axioms used ONLY by the eval_arsh proof, deliberately kept

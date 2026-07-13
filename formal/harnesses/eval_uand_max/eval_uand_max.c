@@ -1,18 +1,19 @@
 #include "eval_uand_max.h"
 #include "../eval_umax_bits/eval_umax_bits.h"
-/* LandCanon/cover axioms: needed by THIS proof (uand_cover); .c-scoped
- * like the other axiom headers. */
+/* Axioms are include from the .c (and not the header) so consumers of the
+   contract don't drag them into their own PO search spaces. Do NOT move
+   this include to the header or it will slow down verification. */
 #include "../../common/axioms_and.h"
 
 /*@
 	requires opsz_ok: opsz == 32 || opsz == 64;
-	requires w1: v1 <= (opsz == 32 ? 0xFFFFFFFF : 0xFFFFFFFFFFFFFFFF);
-	requires w2: v2 <= (opsz == 32 ? 0xFFFFFFFF : 0xFFFFFFFFFFFFFFFF);
+	requires w1: v1 <= (opsz == 32 ? _32_BIT_MASK : _64_BIT_MASK);
+	requires w2: v2 <= (opsz == 32 ? _32_BIT_MASK : _64_BIT_MASK);
 	terminates \true;
 	assigns \nothing;
 
 	ensures uand_nonneg: 0 <= \result;
-	ensures uand_width:  \result <= (opsz == 32 ? 0xFFFFFFFF : 0xFFFFFFFFFFFFFFFF);
+	ensures uand_width:  \result <= (opsz == 32 ? _32_BIT_MASK : _64_BIT_MASK);
 	// Half-width propagation through the AND: the result is bounded by
 	// the v2 side's mask alone (AND only clears bits), so a v2 under
 	// msk>>1 pins the result under msk>>1. Both signed-track call sites

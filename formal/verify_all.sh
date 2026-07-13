@@ -221,6 +221,36 @@ verify $FIXES -wp-timeout 600 \
 	harnesses/eval_uor_max/eval_uor_max.c \
 	harnesses/eval_smax_bound/eval_smax_bound.c
 
+# eval_mul: nonlinear multiply, the hardest operator. Both soundness goals
+# need the opsz/mask split — usound's mask-strip and ssound's signed
+# round-trip / uint-wrap bridge resolve per concrete mask. axioms_mul.h
+# (the half_mask_* Qed lemmas plus the mul monotonicity / bound / wrap
+# axioms) is included ONLY by eval_mul.c, so its lemmas need their own
+# @lemma pass here: the top-level pass runs over a TU that never sees them.
+# 450s not 60: mul_ssound_overflow (the to_signed-strip + framing lemma) is a
+# slow nonlinear goal — ~76s on the reference box, more on a slower one — and a
+# lemma is proved ONCE, so a generous ceiling costs nothing and keeps it from
+# flickering red (a red lemma would silently prop up ssound). The other 16
+# lemmas prove in seconds.
+wp_pass "axioms_mul.h" "lemmas" -wp-timeout 450 -wp-prop @lemma \
+	harnesses/eval_mul/eval_mul.c \
+	harnesses/eval_umax_bound/eval_umax_bound.c \
+	harnesses/eval_smax_bound/eval_smax_bound.c
+
+# The mul_usound_overflow / mul_ssound_overflow lemmas (eval_mul.h) state
+# each overflow branch's soundness against the folded predicate, so every
+# soundness goal closes by ONE lemma instantiation instead of a per-goal
+# e-matching search — 300s is ample (whole-property wall ~4m, no single part
+# over ~2m). Without those lemmas the hardest overflow x fallback part did
+# not close even at 1800s.
+SPLIT_PROPS="usound ssound" \
+verify $FIXES -wp-timeout 300 \
+	-wp-fct eval_mul \
+	harnesses/eval_mul/eval_mul_main.c \
+	harnesses/eval_mul/eval_mul.c \
+	harnesses/eval_umax_bound/eval_umax_bound.c \
+	harnesses/eval_smax_bound/eval_smax_bound.c
+
 verify $FIXES -wp-timeout 600 \
 	-wp-fct eval_apply_mask \
 	harnesses/eval_apply_mask/eval_apply_mask_main.c \
@@ -271,7 +301,7 @@ verify $FIXES -wp-timeout 600 -wp-split \
 
 # 1200s: the slowest usound split part flickers at the 600s line under
 # load; uncontended it proves with margin at 1200.
-verify $FIXES -wp-timeout 1200 -wp-split \
+verify $FIXES -wp-timeout 1800 -wp-split \
 	-wp-fct eval_arsh \
 	harnesses/eval_arsh/eval_arsh_main.c \
 	harnesses/eval_arsh/eval_arsh.c \

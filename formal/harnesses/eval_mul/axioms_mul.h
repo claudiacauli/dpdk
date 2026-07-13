@@ -1,7 +1,7 @@
 #ifndef AXIOMS_MUL_H
 #define AXIOMS_MUL_H
 
-#include "specs.h"
+#include "../../common/specs.h"
 
 /*
  * Trusted axioms used ONLY by the eval_mul proof, TU-scoped like the
@@ -47,7 +47,35 @@ axiomatic MulBounds {
 		\forall integer a, b;
 		0 <= a <= 0x7FFFFFFF && 0 <= b <= 0x7FFFFFFF
 		==> (a * b) <= 0x7FFFFFFFFFFFFFFF;
+	// Low-w bits of a product are wrap-invariant. BOTH constants branches
+	// compute the product in uint64 (with its 2^64 wrap) before masking by
+	// msk, while the soundness predicates mask the MATHEMATICAL product;
+	// for the two full masks (w <= 64) the low w bits agree, so the masked
+	// values are equal — WP's Cbits + nonlinear encoding cannot relate
+	// them. Discharged ONLY inside the mul_umask / mul_sext2 helper VCs
+	// (mul_sext2 by congruence, applying to_signed to both equal sides);
+	// the helpers' math-form `ensures` keep this uint-product form
+	// `to_uint64(to_uint64(a)*to_uint64(b))` out of every eval_mul
+	// soundness goal, so the axiom never fires there — inline it perturbs
+	// (the bidirectional equality matching-loops on the constants term and
+	// times out even the trivial all-constant part).
+	axiom mul_mask_wrap:
+		\forall integer a, b, m;
+		(m == 0xFFFFFFFF || m == 0xFFFFFFFFFFFFFFFF)
+		==> (((uint64_t)((uint64_t)a * (uint64_t)b)) & m) == ((a * b) & m);
 }
+*/
+
+// Ground values of the overflow-guard half-shifts. NOT trusted axioms:
+// Qed proves each by constant folding. Stated as lemmas so the equations
+// also exist where the guard `x <= msk >> opsz/2` appears with a ground
+// shift the provers cannot otherwise evaluate — folding it to the literal
+// 2^(w/2)-1 bound is what lets the mask-concrete mul_bound_* axioms fire.
+/*@
+lemma half_mask_u32: (0xFFFFFFFF >> 16) == 0xFFFF;
+lemma half_mask_u64: (0xFFFFFFFFFFFFFFFF >> 32) == 0xFFFFFFFF;
+lemma half_mask_s32: (0x7FFFFFFF >> 16) == 0x7FFF;
+lemma half_mask_s64: (0x7FFFFFFFFFFFFFFF >> 32) == 0x7FFFFFFF;
 */
 
 #endif /* AXIOMS_MUL_H */

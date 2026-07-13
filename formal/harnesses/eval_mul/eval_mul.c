@@ -1,9 +1,32 @@
 #include "eval_mul.h"
 #include "../eval_umax_bound/eval_umax_bound.h"
 #include "../eval_smax_bound/eval_smax_bound.h"
-/* Nonlinear-multiply facts (monotonicity, overflow bounds) needed by THIS
- * proof; include from the .c, not the header. */
-#include "../../common/axioms_mul.h"
+/* Axioms are include from the .c (and not the header) so consumers of the
+   contract don't drag them into their own PO search spaces. Do NOT move
+   this include to the header or it will slow down verification. */
+#include "axioms_mul.h"
+#include "../../common/axioms_and.h"
+
+/*
+ * Masked product of two unsigned operands, stated in the MATH-product form
+ * eval_mul_unsigned_soundness uses. The body computes the C uint64 product
+ * (which wraps mod 2^64 before masking), so the uint-wrap-vs-math bridge
+ * mul_mask_wrap is discharged HERE, in this one VC; callers see only the
+ * `(a*b) & msk` ensures. That keeps the bridge's uint-product trigger out
+ * of every usound goal — inline, the constants branch's masked uint
+ * product is in scope for all goals and perturbs them. Not fix-gated: the
+ * unsigned constants branch is identical in both semantics, and this is a
+ * pure extraction of `(rd->u.min * rs->u.min) & msk`.
+ */
+/*@
+	requires msk == _32_BIT_MASK || msk == _64_BIT_MASK;
+	assigns \nothing;
+	ensures \result == ((a * b) & msk);
+*/
+static uint64_t mul_umask(uint64_t a, uint64_t b, uint64_t msk)
+{
+	return (a * b) & msk;
+}
 
 #ifdef FIX_MUL_SCONST
 /*
@@ -22,6 +45,27 @@
 static int64_t mul_sext(uint64_t p, uint64_t msk)
 {
 	return (p <= (msk >> 1)) ? (int64_t)p : (int64_t)(p - (msk + 1));
+}
+
+/*
+ * Sign-extended masked product of two signed operands, stated in the
+ * MATH-product form the signed-soundness predicate uses. The body still
+ * computes it the C way (uint64 product, then mask, then mul_sext), so the
+ * uint-wrap-vs-math bridge to_signed_mul_wrap is discharged HERE, in this
+ * one VC — the callers see only the `to_signed((d*e)&msk, msk)` ensures.
+ * That keeps the bridge axiom's uint-product trigger out of eval_mul's
+ * soundness goals entirely: left inline, that term (from the signed
+ * constants branch) is in scope for every goal and the bidirectional
+ * equality matching-loops, timing out even the trivial all-constant part.
+ */
+/*@
+	requires msk == _32_BIT_MASK || msk == _64_BIT_MASK;
+	assigns \nothing;
+	ensures \result == to_signed((d * e) & msk, msk);
+*/
+static int64_t mul_sext2(int64_t d, int64_t e, uint64_t msk)
+{
+	return mul_sext(((uint64_t)d * (uint64_t)e) & msk, msk);
 }
 #endif
 
@@ -49,10 +93,21 @@ static int64_t mul_sext(uint64_t p, uint64_t msk)
 void eval_mul(struct bpf_reg_val *rd, const struct bpf_reg_val *rs, size_t opsz,
 	uint64_t msk)
 {
+	/* Resolve opsz per mask up front: the guard shift `msk >> opsz/2`
+	 * substitutes opsz -> op_bits(msk), which does not auto-fold; pinning
+	 * opsz to a literal lets the guard bound collapse to 2^(w/2)-1. */
+	/*@ assert ob32: msk == 0xFFFFFFFF ==> opsz == 32; */
+	/*@ assert ob64: msk == 0xFFFFFFFFFFFFFFFF ==> opsz == 64; */
+	/* msk is all-ones: lets land_allones_id (axioms_and.h) strip `& msk`
+	 * from a product that fits the width — the soundness mask-strip — with
+	 * the shape guard discharged by assumption (a symbolic land, not a
+	 * ground one the provers must evaluate). Proved from shape_mask32/64. */
+	/*@ assert msk_shape: (msk & (msk + 1)) == 0; */
+
 	/* both operands are constants */
 	if (rd->u.min == rd->u.max && rs->u.min == rs->u.max) {
-		rd->u.min = (rd->u.min * rs->u.min) & msk;
-		rd->u.max = (rd->u.max * rs->u.max) & msk;
+		rd->u.min = mul_umask(rd->u.min, rs->u.min, msk);
+		rd->u.max = mul_umask(rd->u.max, rs->u.max, msk);
 	/* check for overflow */
 #ifdef FIX_MUL_UGUARD
 	/*
@@ -69,8 +124,19 @@ void eval_mul(struct bpf_reg_val *rd, const struct bpf_reg_val *rs, size_t opsz,
 #else
 	} else if (rd->u.max <= msk >> opsz / 2 && rs->u.max <= msk >> opsz) {
 #endif
-		/* monotonicity stone: mul_mono fires here (only preconditions
-		 * in scope) but not inside the folded ordering/soundness goals */
+		/*
+		 * Stones for the nonlinear multiply, asserted here where only
+		 * the guard + preconditions are in scope. u_nof: the guarded
+		 * product fits in the width (mul_bound), so the C multiply's
+		 * to_uint64 wrap is the identity; u_mono: monotonicity gives
+		 * the new u.min <= u.max and bounds every witness product.
+		 */
+		/* per-mask so the msk==const hypothesis folds op_bits, /2 and the
+		 * guard shift to a literal, letting mask-concrete mul_bound fire */
+		/*@ assert u_nof32: msk == 0xFFFFFFFF ==>
+		      (rd->u.max * rs->u.max) <= msk; */
+		/*@ assert u_nof64: msk == 0xFFFFFFFFFFFFFFFF ==>
+		      (rd->u.max * rs->u.max) <= msk; */
 		/*@ assert u_mono: (rd->u.min * rs->u.min) <= (rd->u.max * rs->u.max); */
 		rd->u.max *= rs->u.max;
 		rd->u.min *= rs->u.min;
@@ -88,8 +154,8 @@ void eval_mul(struct bpf_reg_val *rd, const struct bpf_reg_val *rs, size_t opsz,
 		 * breaking swidth and ssound. Sign-extend to the canonical
 		 * signed value.
 		 */
-		rd->s.min = mul_sext(((uint64_t)rd->s.min * (uint64_t)rs->s.min) & msk, msk);
-		rd->s.max = mul_sext(((uint64_t)rd->s.max * (uint64_t)rs->s.max) & msk, msk);
+		rd->s.min = mul_sext2(rd->s.min, rs->s.min, msk);
+		rd->s.max = mul_sext2(rd->s.max, rs->s.max, msk);
 #else
 		rd->s.min = ((uint64_t)rd->s.min * (uint64_t)rs->s.min) & msk;
 		rd->s.max = ((uint64_t)rd->s.max * (uint64_t)rs->s.max) & msk;
@@ -111,6 +177,10 @@ void eval_mul(struct bpf_reg_val *rd, const struct bpf_reg_val *rs, size_t opsz,
 #else
 	} else if (rd->s.min >= 0 && rs->s.min >= 0) {
 #endif
+		/*@ assert s_nof32: msk == 0xFFFFFFFF ==>
+		      (rd->s.max * rs->s.max) <= (msk >> 1); */
+		/*@ assert s_nof64: msk == 0xFFFFFFFFFFFFFFFF ==>
+		      (rd->s.max * rs->s.max) <= (msk >> 1); */
 		/*@ assert s_mono: (rd->s.min * rs->s.min) <= (rd->s.max * rs->s.max); */
 		rd->s.max *= rs->s.max;
 		rd->s.min *= rs->s.min;
