@@ -21,7 +21,7 @@ static int range_ordering(const struct bpf_reg_val *rv)
 	return rv->u.min <= rv->u.max && rv->s.min <= rv->s.max;
 }
 
-static int range_sign_consistency(const struct bpf_reg_val *rv,
+static int range_agreement(const struct bpf_reg_val *rv,
 	uint64_t mask)
 {
 	if (rv->s.min >= 0 || rv->s.max < 0 ||
@@ -34,7 +34,7 @@ static int range_sign_consistency(const struct bpf_reg_val *rv,
 static int range_validity(const struct bpf_reg_val *rv, uint64_t mask)
 {
 	return rv->v.type == RTE_BPF_ARG_UNDEF ||
-		(range_ordering(rv) && range_sign_consistency(rv, mask));
+		(range_ordering(rv) && range_agreement(rv, mask));
 }
 
 static int range_within_width(const struct bpf_reg_val *rv, uint64_t mask)

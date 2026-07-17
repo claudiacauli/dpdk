@@ -51,7 +51,7 @@ void eval_or(struct bpf_reg_val *rd, const struct bpf_reg_val *rs, size_t opsz,
 	 * over os.u: when rs is non-negative its unsigned pattern range IS
 	 * its signed value range, and when rs is a constant that range is the
 	 * single masked pattern. Asserted pre-call, from range_validity's
-	 * sign_consistency; the ssound parts consume them as hypotheses.
+	 * agreement; the ssound parts consume them as hypotheses.
 	 */
 
 	/* both operands are constants */

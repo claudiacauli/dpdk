@@ -17,8 +17,8 @@
 	ensures uord:       unsigned_range_ordering(rv);
 	ensures sord:       signed_range_ordering(rv);
 	ensures valid:      range_validity(rv, mask);
-	ensures consist_min: min_sign_consistency(rv, mask);
-	ensures consist_max: max_sign_consistency(rv, mask);
+	ensures agree_min: min_agreement(rv, mask);
+	ensures agree_max: max_agreement(rv, mask);
 	ensures uwidth:     unsigned_range_within_width(rv, mask);
 	ensures swidth:     signed_range_within_width(rv, mask);
 */

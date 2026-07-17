@@ -25,12 +25,12 @@
 	ensures sord:       signed_range_ordering(rv);
 	ensures uwidth:     unsigned_range_within_width(rv, mask);
 	ensures swidth:     signed_range_within_width(rv, mask);
-	ensures consist_min: \old(range_sign_consistency(rv, mask)) &&
+	ensures agree_min: \old(range_agreement(rv, mask)) &&
 			\old(range_within_width(rv, mask))
-			==> min_sign_consistency(rv, mask);
-	ensures consist_max: \old(range_sign_consistency(rv, mask)) &&
+			==> min_agreement(rv, mask);
+	ensures agree_max: \old(range_agreement(rv, mask)) &&
 			\old(range_within_width(rv, mask))
-			==> max_sign_consistency(rv, mask);
+			==> max_agreement(rv, mask);
 	ensures usound:     eval_apply_mask_unsigned_soundness(\old(*rv), *rv, mask);
 	ensures ssound:     eval_apply_mask_signed_soundness(\old(*rv), *rv, mask);
 */
