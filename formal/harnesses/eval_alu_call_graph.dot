@@ -1,0 +1,182 @@
+digraph eval_alu_call_graph {
+    rankdir=TB;
+    splines=true;
+    compound=true;
+    nodesep=0.3;
+    ranksep=1.2;
+
+    node [shape=box, style=filled];
+
+    /* ======== Level 0 — Entry Point ======== */
+    subgraph cluster_L0 {
+        label="Level 0 — Entry Point";
+        style="dashed,rounded";
+        color="#888";
+        fontsize=11;
+        fontcolor="#555";
+        labeljust=l;
+        margin=8;
+
+        { rank=same; eval_alu; }
+
+        eval_alu [fillcolor="#87CEEB", label=<<b>eval_alu</b><br/><font point-size="11">(bvf, ins)</font>>];
+    }
+
+    /* ======== Level 1 — Pre-processing ======== */
+    subgraph cluster_L1 {
+        label="Level 1 — Pre-processing";
+        style="dashed,rounded";
+        color="#888";
+        fontsize=11;
+        fontcolor="#555";
+        labeljust=l;
+        margin=8;
+
+        { rank=same; eval_apply_mask; eval_fill_imm; eval_defined; }
+
+        eval_apply_mask [fillcolor="#98FB98", label=<<b>eval_apply_mask</b><br/><font point-size="11">(rv, mask)</font>>];
+        eval_fill_imm   [fillcolor="#98FB98", label=<<b>eval_fill_imm</b><br/><font point-size="11">(rv, mask, imm)</font>>];
+        eval_defined    [fillcolor="#98FB98", label=<<b>eval_defined</b><br/><font point-size="11">(dst, src)</font>>];
+    }
+
+    /* ======== Level 2 — Operator Dispatch ======== */
+    subgraph cluster_L2 {
+        label="Level 2 — Operator Dispatch";
+        style="dashed,rounded";
+        color="#888";
+        fontsize=11;
+        fontcolor="#555";
+        labeljust=l;
+        margin=100;
+
+        { rank=same;
+            eval_neg; eval_add; eval_sub; eval_lsh; eval_rsh; eval_arsh;
+            eval_and; eval_or; eval_xor; eval_mul; eval_divmod;
+        }
+
+        eval_neg        [fillcolor="#FFD700", label=<<b>eval_neg</b><br/><font point-size="11">(rd, opsz, msk)</font>>];
+        eval_add        [fillcolor="#FFD700", label=<<b>eval_add</b><br/><font point-size="11">(rd, rs, msk)</font>>];
+        eval_sub        [fillcolor="#FFD700", label=<<b>eval_sub</b><br/><font point-size="11">(rd, rs, msk)</font>>];
+        eval_lsh        [fillcolor="#FFD700", label=<<b>eval_lsh</b><br/><font point-size="11">(rd, rs, opsz, msk)</font>>];
+        eval_rsh        [fillcolor="#FFD700", label=<<b>eval_rsh</b><br/><font point-size="11">(rd, rs, opsz, msk)</font>>];
+        eval_arsh       [fillcolor="#FFD700", label=<<b>eval_arsh</b><br/><font point-size="11">(rd, rs, opsz, msk)</font>>];
+        eval_and        [fillcolor="#FFD700", label=<<b>eval_and</b><br/><font point-size="11">(rd, rs, opsz, msk)</font>>];
+        eval_or         [fillcolor="#FFD700", label=<<b>eval_or</b><br/><font point-size="11">(rd, rs, opsz, msk)</font>>];
+        eval_xor        [fillcolor="#FFD700", label=<<b>eval_xor</b><br/><font point-size="11">(rd, rs, opsz, msk)</font>>];
+        eval_mul        [fillcolor="#FFD700", label=<<b>eval_mul</b><br/><font point-size="11">(rd, rs, opsz, msk)</font>>];
+        eval_divmod     [fillcolor="#FFD700", label=<<b>eval_divmod</b><br/><font point-size="11">(op, rd, rs, msk)</font>>];
+    }
+
+    /* ======== Level 3 — Helpers / Overflow ======== */
+    subgraph cluster_L3 {
+        label="Level 3 — Helpers / Overflow";
+        style="dashed,rounded";
+        color="#888";
+        fontsize=11;
+        fontcolor="#555";
+        labeljust=l;
+        margin=120;
+
+        { rank=same;
+            eval_max_bound; eval_umax_bound; eval_smax_bound;
+            eval_fill_imm64; eval_fill_max_bound;
+            eval_uand_max; eval_uor_max;
+        }
+
+        eval_max_bound      [fillcolor="#DDA0DD", label=<<b>eval_max_bound</b><br/><font point-size="11">(rv, mask)</font>>];
+        eval_umax_bound     [fillcolor="#DDA0DD", label=<<b>eval_umax_bound</b><br/><font point-size="11">(rv, mask)</font>>];
+        eval_smax_bound     [fillcolor="#DDA0DD", label=<<b>eval_smax_bound</b><br/><font point-size="11">(rv, mask)</font>>];
+        eval_fill_imm64     [fillcolor="#DDA0DD", label=<<b>eval_fill_imm64</b><br/><font point-size="11">(rv, mask, val)</font>>];
+        eval_fill_max_bound [fillcolor="#DDA0DD", label=<<b>eval_fill_max_bound</b><br/><font point-size="11">(rv, mask)</font>>];
+        eval_uand_max       [fillcolor="#DDA0DD", label=<<b>eval_uand_max</b><br/><font point-size="11">(v1, v2, opsz)</font>>];
+        eval_uor_max        [fillcolor="#DDA0DD", label=<<b>eval_uor_max</b><br/><font point-size="11">(v1, v2, opsz)</font>>];
+    }
+
+    /* ======== Level 4 — Bit-length Helpers ======== */
+    subgraph cluster_L4 {
+        label="Level 4 — Bit-length Helpers";
+        style="dashed,rounded";
+        color="#888";
+        fontsize=11;
+        fontcolor="#555";
+        labeljust=l;
+        margin=8;
+
+        { rank=same; eval_umax_bits; }
+
+        eval_umax_bits [fillcolor="#F0B0B0", label=<<b>eval_umax_bits</b><br/><font point-size="11">(v, opsz)</font>>];
+    }
+
+    /* ======== Invisible layout constraints ======== */
+    /* Shift Level 3 right of Level 2 (under its rightmost node) */
+    eval_divmod -> eval_umax_bound [style=invis, weight=100];
+
+    /* ======== Edges: Level 0 → Level 1 ======== */
+    eval_alu -> eval_fill_imm;
+    eval_alu -> eval_apply_mask;
+    eval_alu -> eval_defined;
+
+    /* ======== Edges: Level 0 → Level 2 (Operators) ======== */
+    eval_alu -> eval_add;
+    eval_alu -> eval_sub;
+    eval_alu -> eval_lsh;
+    eval_alu -> eval_rsh;
+    eval_alu -> eval_arsh;
+    eval_alu -> eval_and;
+    eval_alu -> eval_or;
+    eval_alu -> eval_xor;
+    eval_alu -> eval_mul;
+    eval_alu -> eval_divmod;
+    eval_alu -> eval_neg;
+    eval_alu -> eval_max_bound;
+
+    /* ======== Invisible alignment: push Level 2 right of Level 1 ======== */
+    eval_defined -> eval_neg [style=invis, weight=100];
+
+    /* ======== Edges: Level 1 → Level 3 ======== */
+    eval_fill_imm   -> eval_fill_imm64;
+    eval_apply_mask -> eval_smax_bound;
+
+    /* ======== Edges: Level 2 → Level 3 (oversize shift → max_bound) ======== */
+    eval_lsh -> eval_max_bound;
+    eval_rsh -> eval_max_bound;
+    eval_arsh -> eval_max_bound;
+
+    /* ======== Edges: Level 2 → Level 3 ======== */
+    eval_add -> eval_fill_max_bound;
+    eval_add -> eval_umax_bound;
+    eval_add -> eval_smax_bound;
+
+    eval_sub -> eval_umax_bound;
+    eval_sub -> eval_smax_bound;
+
+    eval_lsh -> eval_umax_bound;
+    eval_lsh -> eval_smax_bound;
+
+    eval_rsh -> eval_smax_bound;
+
+    eval_and -> eval_uand_max;
+    eval_and -> eval_smax_bound;
+
+    eval_or  -> eval_uor_max;
+    eval_or  -> eval_smax_bound;
+
+    eval_xor -> eval_uor_max;
+    eval_xor -> eval_smax_bound;
+
+    eval_mul -> eval_umax_bound;
+    eval_mul -> eval_smax_bound;
+
+    eval_divmod -> eval_smax_bound;
+
+    /* ======== Edges: Level 3 → Level 3 ======== */
+    eval_max_bound -> eval_umax_bound;
+    eval_max_bound -> eval_smax_bound;
+
+    eval_fill_max_bound -> eval_max_bound;
+
+    /* ======== Edges: Level 3 → Level 4 ======== */
+    eval_uand_max -> eval_umax_bits;
+    eval_uor_max  -> eval_umax_bits;
+
+}

@@ -1,0 +1,486 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>eval_alu — Control Flow Graph</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+html, body { width: 100%; height: 100%; overflow: hidden; background: #fafafa; font-family: system-ui, sans-serif; }
+#canvas { width: 100%; height: 100%; display: block; cursor: grab; }
+#canvas:active { cursor: grabbing; }
+.node-group { cursor: pointer; }
+.node-group:active { cursor: grabbing; }
+.edge { fill: none; stroke: #555; stroke-width: 1.5; }
+.edge-red { fill: none; stroke: #c33; stroke-width: 1.5; }
+.edge-hit { fill: none; stroke: transparent; stroke-width: 14; cursor: pointer; }
+.edge-hit:active { cursor: grabbing; }
+.edge-handle { fill: #888; cursor: grab; }
+.edge-handle:active { cursor: grabbing; }
+#controls {
+  position: fixed; bottom: 16px; left: 50%; transform: translateX(-50%);
+  display: flex; gap: 8px; z-index: 50;
+}
+#controls button, #controls label {
+  background: #fff; border: 1px solid #aaa; border-radius: 6px;
+  padding: 6px 14px; font-size: 13px; cursor: pointer;
+}
+#controls button:hover, #controls label:hover { background: #eee; }
+</style>
+</head>
+<body>
+
+<svg id="canvas">
+  <defs>
+    <marker id="arrow" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto">
+      <path d="M0,0 L8,3 L0,6 Z" fill="#555"/>
+    </marker>
+    <marker id="arrow-red" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto">
+      <path d="M0,0 L8,3 L0,6 Z" fill="#c33"/>
+    </marker>
+  </defs>
+</svg>
+
+<div id="controls">
+  <button onclick="resetLayout()">Reset Layout</button>
+  <button onclick="toggleAutoLayout()" id="layoutBtn">Resume Auto-Layout</button>
+  <button onclick="saveLayout()">Save Layout</button>
+  <label style="display:inline-block">Load Layout
+    <input type="file" accept=".json" style="display:none" onchange="loadLayout(event)">
+  </label>
+</div>
+
+<script>
+var NODE_H = 52;
+function nodeW(n) {
+  if (n.shape === "diamond") return 60;
+  var cw = 6.8, cp = 5.5;
+  return Math.max(n.label.length * cw, (n.detail||"").length * cp) + 28;
+}
+
+var nodes = [
+  { id:"entry",   shape:"pill",  label:"eval_alu(bvf, ins)",               detail:"",      level:0, color:"#87CEEB" },
+  { id:"setup",   shape:"rect",  label:"Compute operation width",           detail:"sz, opsz, msk; st, rd", level:1, color:"#e8f5e9" },
+  { id:"dec_src", shape:"diamond", label:"BPF_SRC == BPF_X?",              detail:"",      level:2, color:"#fff" },
+  { id:"src_x",   shape:"rect",  label:"X: rs = st->rv[src_reg]",          detail:"eval_apply_mask(&rs, msk)", level:3, color:"#fff9c4" },
+  { id:"src_k",   shape:"rect",  label:"K: rs = { .size = sz }",         detail:"eval_fill_imm(&rs, msk, imm)", level:3, color:"#fff9c4" },
+  { id:"mask_rd", shape:"rect",  label:"eval_apply_mask(rd, msk)",         detail:"always, unconditional",      level:4, color:"#fff9c4" },
+  { id:"dec_self",shape:"diamond", label:"op == BPF_XOR && src == dst?",  detail:"",      level:5, color:"#fff" },
+  { id:"self_yes",shape:"rect",  label:"Self-xor: zero register",          detail:"eval_fill_imm(&rs, -1, 0); eval_fill_imm(rd, -1, 0)", level:6, color:"#fff9c4" },
+  { id:"defined", shape:"rect",  label:"err = eval_defined(rd, &rs)",      detail:"checks UNDEF (dst: non-MOV, src: non-NEG, X)", level:7, color:"#fff9c4" },
+  { id:"dec_err", shape:"diamond", label:"err != NULL?",                   detail:"",      level:8, color:"#fff" },
+  { id:"exit_early",shape:"pill", label:"return err",                      detail:"",      level:9, color:"#ffcdd2" },
+  { id:"dispatch",shape:"rect",  label:"Dispatch: op = BPF_OP(code)",  detail:"12-way branch by opcode", level:10, color:"#e1d5f0" },
+  { id:"op_add",  shape:"rect",  label:"BPF_ADD",       detail:"eval_add(rd, &rs, msk)",             level:11, color:"#fff9c4" },
+  { id:"op_sub",  shape:"rect",  label:"BPF_SUB",       detail:"eval_sub(rd, &rs, msk)",             level:11, color:"#fff9c4" },
+  { id:"op_lsh",  shape:"rect",  label:"BPF_LSH",       detail:"eval_lsh(rd, &rs, opsz, msk)",       level:11, color:"#fff9c4" },
+  { id:"op_rsh",  shape:"rect",  label:"BPF_RSH",       detail:"eval_rsh(rd, &rs, opsz, msk)",       level:11, color:"#fff9c4" },
+  { id:"op_arsh", shape:"rect",  label:"EBPF_ARSH",     detail:"eval_arsh(rd, &rs, opsz, msk)",      level:11, color:"#fff9c4" },
+  { id:"op_and",  shape:"rect",  label:"BPF_AND",       detail:"eval_and(rd, &rs, opsz, msk)",       level:11, color:"#fff9c4" },
+  { id:"op_or",   shape:"rect",  label:"BPF_OR",        detail:"eval_or(rd, &rs, opsz, msk)",        level:11, color:"#fff9c4" },
+  { id:"op_xor",  shape:"rect",  label:"BPF_XOR",       detail:"eval_xor(rd, &rs, opsz, msk)",       level:11, color:"#fff9c4" },
+  { id:"op_mul",  shape:"rect",  label:"BPF_MUL",       detail:"eval_mul(rd, &rs, opsz, msk)",       level:11, color:"#fff9c4" },
+  { id:"op_divmod",shape:"rect", label:"BPF_DIV / MOD", detail:"err = eval_divmod(op, rd, rs, msk)",  level:11, color:"#fff9c4" },
+  { id:"op_neg",  shape:"rect",  label:"BPF_NEG",       detail:"eval_neg(rd, opsz, msk)",            level:11, color:"#fff9c4" },
+  { id:"op_mov",  shape:"rect",  label:"EBPF_MOV / default", detail:"*rd = rs / eval_max_bound",      level:11, color:"#e8f5e9" },
+  { id:"exit",    shape:"pill",  label:"return err",                      detail:"",      level:12, color:"#ffcdd2" },
+];
+
+var EDGE_LIST = [
+  ["entry","setup"],
+  ["setup","dec_src"],
+  ["dec_src","src_x","yes"],
+  ["dec_src","src_k","no"],
+  ["src_x","mask_rd"],
+  ["src_k","mask_rd"],
+  ["mask_rd","dec_self"],
+  ["dec_self","self_yes","yes"],
+  ["dec_self","defined","no"],
+  ["self_yes","defined"],
+  ["defined","dec_err"],
+  ["dec_err","exit_early","yes"],
+  ["dec_err","dispatch","no"],
+  ["exit_early","exit",""],
+  ["dispatch","op_add"],
+  ["dispatch","op_sub"],
+  ["dispatch","op_lsh"],
+  ["dispatch","op_rsh"],
+  ["op_add","exit"],
+  ["op_sub","exit"],
+  ["op_lsh","exit"],
+  ["op_rsh","exit"],
+  ["dispatch","op_arsh"],
+  ["dispatch","op_and"],
+  ["dispatch","op_or"],
+  ["dispatch","op_xor"],
+  ["op_arsh","exit"],
+  ["op_and","exit"],
+  ["op_or","exit"],
+  ["op_xor","exit"],
+  ["dispatch","op_mul"],
+  ["dispatch","op_divmod"],
+  ["dispatch","op_neg"],
+  ["dispatch","op_mov"],
+  ["op_mul","exit"],
+  ["op_divmod","exit"],
+  ["op_neg","exit"],
+  ["op_mov","exit"],
+];
+
+var edges = EDGE_LIST.map(function(p){ return {source:p[0], target:p[1], label:p[2]||""}; });
+
+var nodeMap = {};
+nodes.forEach(function(n) {
+  n.x = 0; n.y = 0; n.vx = 0; n.vy = 0; n.pinned = false;
+  nodeMap[n.id] = n;
+});
+
+var levelNodes = [];
+for (var i = 0; i <= 14; i++) levelNodes.push([]);
+nodes.forEach(function(n){ levelNodes[n.level].push(n); });
+
+var levelY = [];
+
+var svg = document.getElementById("canvas");
+var ns = "http://www.w3.org/2000/svg";
+
+function resize() {
+  var w = window.innerWidth, h = window.innerHeight;
+  svg.setAttribute("viewBox", "0 0 "+w+" "+h);
+  svg.setAttribute("width", w);
+  svg.setAttribute("height", h);
+  var gap = Math.min(h / 8, 100);
+  for (var i = 0; i <= 14; i++) levelY[i] = 30 + i * gap;
+}
+window.addEventListener("resize", resize);
+
+function initPositions() {
+  var w = window.innerWidth;
+  // position each level as a row, with manual X offsets for flowchart layout
+  var layout = {
+    entry:   { x:0.5 },
+    setup:   { x:0.5 },
+    dec_src: { x:0.5 },
+    src_x:   { x:0.75 },
+    src_k:   { x:0.25 },
+    mask_rd: { x:0.5 },
+    dec_self:{ x:0.5 },
+    self_yes:{ x:0.75 },
+    defined: { x:0.5 },
+    dec_err: { x:0.5 },
+    exit_early:{ x:0.88 },
+    dispatch:{ x:0.5 },
+    op_add:  { x:0.08 }, op_sub:  { x:0.16 }, op_lsh:  { x:0.24 }, op_rsh:  { x:0.32 },
+    op_arsh: { x:0.40 }, op_and:  { x:0.48 }, op_or:   { x:0.56 }, op_xor:  { x:0.64 },
+    op_mul:  { x:0.72 }, op_divmod:{ x:0.80 }, op_neg:  { x:0.88 }, op_mov:  { x:0.96 },
+    exit:    { x:0.5 },
+  };
+  nodes.forEach(function(n) {
+    var pos = layout[n.id] || { x:0.5 };
+    var nw = nodeW(n);
+    n.x = w * pos.x;
+    n.y = levelY[n.level];
+    n.vx = 0; n.vy = 0;
+  });
+}
+
+var SPRING_K = 0.004;
+var REPULSE_K = 2000;
+var LEVEL_Y_K = 0.03;
+var DAMPING = 0.85;
+var MIN_VEL = 0.1;
+var layoutRunning = false;
+
+function tick() {
+  if (!layoutRunning) return;
+  edges.forEach(function(e) {
+    var a = nodeMap[e.source], b = nodeMap[e.target];
+    if (!a || !b) return;
+    var dx = b.x - a.x, dy = b.y - a.y;
+    var dist = Math.sqrt(dx*dx + dy*dy) || 1;
+    var force = (dist - 200) * SPRING_K;
+    var fx = (dx/dist)*force, fy = (dy/dist)*force;
+    if (!a.pinned) { a.vx += fx; a.vy += fy; }
+    if (!b.pinned) { b.vx -= fx; b.vy -= fy; }
+  });
+  for (var i = 0; i < nodes.length; i++) {
+    for (var j = i+1; j < nodes.length; j++) {
+      var a = nodes[i], b = nodes[j];
+      var dx = b.x - a.x, dy = b.y - a.y;
+      var dist = Math.sqrt(dx*dx + dy*dy) || 1;
+      var force = REPULSE_K / (dist*dist);
+      var fx = (dx/dist)*force, fy = (dy/dist)*force;
+      if (!a.pinned) { a.vx -= fx; a.vy -= fy; }
+      if (!b.pinned) { b.vx += fx; b.vy += fy; }
+    }
+  }
+  nodes.forEach(function(n) {
+    if (n.pinned) return;
+    var ty = levelY[n.level];
+    if (ty !== undefined) n.vy += (ty - n.y) * LEVEL_Y_K;
+  });
+  var totalSpeed = 0;
+  nodes.forEach(function(n) {
+    if (n.pinned) { n.vx = 0; n.vy = 0; return; }
+    n.vx *= DAMPING; n.vy *= DAMPING;
+    if (Math.abs(n.vx) < MIN_VEL) n.vx = 0;
+    if (Math.abs(n.vy) < MIN_VEL) n.vy = 0;
+    n.x += n.vx; n.y += n.vy;
+    totalSpeed += Math.abs(n.vx) + Math.abs(n.vy);
+  });
+  render();
+  if (totalSpeed < 0.5) {
+    layoutRunning = false;
+    document.getElementById("layoutBtn").textContent = "Resume Auto-Layout";
+    return;
+  }
+  requestAnimationFrame(tick);
+}
+
+var edgeGroup, nodeGroup;
+
+function initRender() {
+  while (svg.lastChild) svg.removeChild(svg.lastChild);
+  var defs = document.createElementNS(ns, "defs");
+  defs.innerHTML = '<marker id="arrow" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto"><path d="M0,0 L8,3 L0,6 Z" fill="#555"/></marker><marker id="arrow-red" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto"><path d="M0,0 L8,3 L0,6 Z" fill="#c33"/></marker>';
+  svg.appendChild(defs);
+  edgeGroup = document.createElementNS(ns, "g");
+  svg.appendChild(edgeGroup);
+  nodeGroup = document.createElementNS(ns, "g");
+  svg.appendChild(nodeGroup);
+
+  nodes.forEach(function(n) {
+    var g = document.createElementNS(ns, "g");
+    g.setAttribute("class", "node-group");
+    var shape;
+    if (n.shape === "pill") {
+      shape = document.createElementNS(ns, "rect");
+      shape.setAttribute("rx", "22"); shape.setAttribute("ry", "22");
+    } else if (n.shape === "diamond") {
+      shape = document.createElementNS(ns, "polygon");
+    } else {
+      shape = document.createElementNS(ns, "rect");
+      shape.setAttribute("rx", "5"); shape.setAttribute("ry", "5");
+    }
+    shape.setAttribute("fill", n.color);
+    shape.setAttribute("stroke", "#666");
+    shape.setAttribute("stroke-width", "1.5");
+    g.appendChild(shape);
+
+    var title = document.createElementNS(ns, "text");
+    title.setAttribute("text-anchor", "middle");
+    title.setAttribute("font-weight", "bold");
+    title.setAttribute("font-size", "12");
+    title.setAttribute("fill", "#111");
+    g.appendChild(title);
+
+    var detail = document.createElementNS(ns, "text");
+    detail.setAttribute("text-anchor", "middle");
+    detail.setAttribute("font-size", "10");
+    detail.setAttribute("fill", "#444");
+    g.appendChild(detail);
+
+    n._g = g; n._shape = shape; n._title = title; n._detail = detail;
+
+    g.addEventListener("pointerdown", function(e) {
+      e.stopPropagation();
+      n.pinned = true;
+      n._dragOffX = e.clientX - n.x;
+      n._dragOffY = e.clientY - n.y;
+      g.setPointerCapture(e.pointerId);
+      layoutRunning = false;
+      document.getElementById("layoutBtn").textContent = "Resume Auto-Layout";
+    });
+    g.addEventListener("pointermove", function(e) {
+      if (!n.pinned) return;
+      n.x = e.clientX - n._dragOffX;
+      n.y = e.clientY - n._dragOffY;
+      n.vx = 0; n.vy = 0;
+      render();
+    });
+    g.addEventListener("pointerup", function(){ n.pinned = false; });
+    g.addEventListener("pointercancel", function(){ n.pinned = false; });
+    nodeGroup.appendChild(g);
+  });
+
+  edges.forEach(function(e) {
+    e._bend = 0;
+    e._dragging = false;
+
+    var hit = document.createElementNS(ns, "path");
+    hit.setAttribute("class", "edge-hit");
+    e._hit = hit;
+    edgeGroup.appendChild(hit);
+
+    var p = document.createElementNS(ns, "path");
+    p.setAttribute("class", e.source === "exit_early" ? "edge-red" : "edge");
+    p.setAttribute("marker-end", "url(#" + (e.source === "exit_early" ? "arrow-red" : "arrow") + ")");
+    e._path = p;
+    edgeGroup.appendChild(p);
+
+    var handle = document.createElementNS(ns, "circle");
+    handle.setAttribute("r", "5");
+    handle.setAttribute("class", "edge-handle");
+    handle.setAttribute("display", "none");
+    e._handle = handle;
+    edgeGroup.appendChild(handle);
+
+    if (e.label) {
+      var lb = document.createElementNS(ns, "text");
+      lb.setAttribute("text-anchor", "middle");
+      lb.setAttribute("font-size", "10");
+      lb.setAttribute("fill", e.label === "yes" ? "#c33" : "#777");
+      lb.textContent = e.label;
+      e._label = lb;
+      edgeGroup.appendChild(lb);
+    }
+
+    hit.addEventListener("pointerdown", function(ev) {
+      ev.stopPropagation();
+      e._dragging = true;
+      e._prevY = ev.clientY;
+      hit.setPointerCapture(ev.pointerId);
+    });
+    hit.addEventListener("pointermove", function(ev) {
+      if (!e._dragging) return;
+      var dy = ev.clientY - e._prevY;
+      e._bend += dy * 0.5;
+      e._prevY = ev.clientY;
+      render();
+    });
+    hit.addEventListener("pointerup", function(){ e._dragging = false; });
+    hit.addEventListener("pointercancel", function(){ e._dragging = false; });
+    hit.addEventListener("mouseenter", function(){ handle.setAttribute("display", "inline"); });
+    hit.addEventListener("mouseleave", function(){ if (!e._dragging) handle.setAttribute("display", "none"); });
+  });
+}
+
+function render() {
+  nodes.forEach(function(n) {
+    if (!n._g) return;
+    var nw = nodeW(n);
+    var x = n.x - nw/2, y = n.y - NODE_H/2;
+    if (n.shape === "diamond") {
+      var hw = 55, hh = 40;
+      var pts = (n.x)+","+(n.y-hh)+" "+(n.x+hw)+","+(n.y)+" "+(n.x)+","+(n.y+hh)+" "+(n.x-hw)+","+(n.y);
+      n._shape.setAttribute("points", pts);
+    } else if (n.shape === "pill") {
+      n._shape.setAttribute("x", x);
+      n._shape.setAttribute("y", y);
+      n._shape.setAttribute("width", nw);
+      n._shape.setAttribute("height", NODE_H);
+    } else {
+      n._shape.setAttribute("x", x);
+      n._shape.setAttribute("y", y);
+      n._shape.setAttribute("width", nw);
+      n._shape.setAttribute("height", NODE_H);
+    }
+    n._title.setAttribute("x", n.x);
+    n._title.setAttribute("y", n.y - (n.detail ? 4 : 6));
+    n._title.textContent = n.label;
+    if (n.detail) {
+      n._detail.setAttribute("x", n.x);
+      n._detail.setAttribute("y", n.y + 14);
+      n._detail.textContent = n.detail;
+      n._detail.setAttribute("display", "inline");
+    } else {
+      n._detail.setAttribute("display", "none");
+    }
+  });
+
+  edges.forEach(function(e) {
+    var a = nodeMap[e.source], b = nodeMap[e.target];
+    if (!a || !b || !e._path) return;
+    var dx = b.x - a.x, dy = b.y - a.y;
+    var dist = Math.sqrt(dx*dx + dy*dy) || 1;
+    var hwA = nodeW(a)/2, hwB = nodeW(b)/2, hh = NODE_H/2;
+    var denomX = Math.abs(dx) || 1, denomY = Math.abs(dy) || 1;
+    var sA = Math.min(hwA * dist / denomX, hh * dist / denomY);
+    var x1 = a.x + dx/dist * sA, y1 = a.y + dy/dist * sA;
+    var sB = Math.min(hwB * dist / denomX, hh * dist / denomY);
+    var x2 = b.x - dx/dist * sB, y2 = b.y - dy/dist * sB;
+    var autoBend = Math.max(15, dist * 0.15);
+    var totalBend = autoBend + (e._bend || 0);
+    var perpX = -dy/dist * totalBend, perpY = dx/dist * totalBend;
+    var cp1x = x1 + dx*0.3 + perpX, cp1y = y1 + dy*0.3 + perpY;
+    var cp2x = x2 - dx*0.3 + perpX, cp2y = y2 - dy*0.3 + perpY;
+    var d = "M"+x1+","+y1+" C"+cp1x+","+cp1y+" "+cp2x+","+cp2y+" "+x2+","+y2;
+    e._path.setAttribute("d", d);
+    if (e._hit) e._hit.setAttribute("d", d);
+    if (e._handle) {
+      var hmx = (x1+x2)/2 + perpX, hmy = (y1+y2)/2 + perpY;
+      e._handle.setAttribute("cx", hmx);
+      e._handle.setAttribute("cy", hmy);
+    }
+    if (e._label) {
+      var mx = (x1+x2)/2 + perpX, my = (y1+y2)/2 + perpY - 12;
+      e._label.setAttribute("x", mx);
+      e._label.setAttribute("y", my);
+    }
+  });
+}
+
+function resetLayout() {
+  initPositions();
+  render();
+}
+
+function toggleAutoLayout() {
+  if (layoutRunning) {
+    layoutRunning = false;
+    document.getElementById("layoutBtn").textContent = "Resume Auto-Layout";
+  } else {
+    layoutRunning = true;
+    document.getElementById("layoutBtn").textContent = "Pause Auto-Layout";
+    tick();
+  }
+}
+
+function saveLayout() {
+  var data = {};
+  nodes.forEach(function(n){ data[n.id] = { x: n.x.toFixed(1), y: n.y.toFixed(1) }; });
+  var blob = new Blob([JSON.stringify(data, null, 2)], {type:"application/json"});
+  var a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = "eval_alu_cfg_layout.json";
+  a.click();
+}
+
+function loadLayout(ev) {
+  var file = ev.target.files[0];
+  if (!file) return;
+  var reader = new FileReader();
+  reader.onload = function(e) {
+    try {
+      var data = JSON.parse(e.target.result);
+      nodes.forEach(function(n) { if (data[n.id]) { n.x = +data[n.id].x; n.y = +data[n.id].y; } });
+      render();
+    } catch(err) { alert("Invalid layout file"); }
+  };
+  reader.readAsText(file);
+  ev.target.value = "";
+}
+
+var panning = false, panX = 0, panY = 0;
+svg.addEventListener("pointerdown", function(e) {
+  if (e.target === svg || e.target === edgeGroup || e.target === nodeGroup) {
+    panning = true; panX = e.clientX; panY = e.clientY;
+  }
+});
+svg.addEventListener("pointermove", function(e) {
+  if (!panning) return;
+  var dx = e.clientX - panX, dy = e.clientY - panY;
+  nodes.forEach(function(n){ n.x += dx; n.y += dy; });
+  panX = e.clientX; panY = e.clientY;
+  render();
+});
+svg.addEventListener("pointerup", function(){ panning = false; });
+svg.addEventListener("pointercancel", function(){ panning = false; });
+
+resize();
+initPositions();
+initRender();
+render();
+</script>
+</body>
+</html>

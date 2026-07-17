@@ -113,7 +113,9 @@ wp_pass() {
 # two goals sit on opposite sides of the split trade-off).
 verify() {
 	local split_props=${SPLIT_PROPS-}
+	local isolate_props=${ISOLATE_PROPS-}
 	SPLIT_PROPS=   # env-prefix assignments to functions persist in bash
+	ISOLATE_PROPS=
 	local fct= impl= prev= f p props neg= extra
 	for f in "$@"; do
 		[ "$prev" = "-wp-fct" ] && fct=$f
@@ -134,7 +136,25 @@ verify() {
 		wp_pass "$fct" "$p" "$@" $extra -wp-prop "$p"
 		neg="$neg${neg:+,}-$p"
 	done
+	# ISOLATE_PROPS="stone1 @requires": cliff stones (and categories)
+	# that flicker inside the batched side-goals run get their own
+	# isolated passes (the goal-batching instability remedy).
+	for p in $isolate_props; do
+		wp_pass "$fct" "$p" "$@" -wp-prop "$p"
+		neg="$neg${neg:+,}-$p"
+	done
 	wp_pass "$fct" "side-goals" "$@" -wp-prop="$neg"
+}
+
+# Helper contracts: the contract-annotated static helpers (mul_sext,
+# dm_sext, fi_sext, ...) are ASSUMED at their call sites by every
+# -wp-fct <harness> pass but are goals in none of them — prove each in its
+# own pass. FIX-gated helpers only exist in the fixed build, so the
+# per-block helper lists vary with $FIXES. Respects --only.
+helpers() { # <harness> <wp args...>
+	local fct=$1; shift
+	[ -n "$ONLY" ] && [ "$fct" != "$ONLY" ] && return 0
+	wp_pass "$fct" "helpers" "$@"
 }
 
 # ACSL lemmas (common/axioms.h) are hypotheses in every PO but are goals
@@ -187,9 +207,13 @@ verify $FIXES -wp-timeout 60 \
 # Deliberately WITHOUT eval_umax_bits.c: eval_and only needs the
 # contracts of its DIRECT callees (eval_uand_max, eval_smax_bound), and
 # umax_bits' .c would drag the ClzWindow axioms into every PO here.
-# -wp-split: the unsplit side-goals batch flips the uand_max
-# requires-instances past the timeout; split, all parts prove fast.
-verify $FIXES -wp-timeout 600 -wp-split \
+# Per-property split, NOT blanket: under the intersection soundness form
+# usound must stay MONOLITHIC (it proves in one search; split, part01
+# never closes even at 600s uncontended), while ssound and the side-goals
+# batch still need splitting — the unsplit side-goals flip the uand_max
+# requires-instances past the timeout.
+SPLIT_PROPS="ssound" \
+verify $FIXES -wp-timeout 600 \
 	-wp-fct eval_and \
 	harnesses/eval_and/eval_and_main.c \
 	harnesses/eval_and/eval_and.c \
@@ -251,8 +275,83 @@ verify $FIXES -wp-timeout 300 \
 	harnesses/eval_umax_bound/eval_umax_bound.c \
 	harnesses/eval_smax_bound/eval_smax_bound.c
 
+if [ -n "$FIXES" ]; then MULH=mul_umask,mul_sext,mul_sext2; else MULH=mul_umask; fi
+helpers eval_mul $FIXES -wp-timeout 60 -wp-fct $MULH \
+	harnesses/eval_mul/eval_mul_main.c \
+	harnesses/eval_mul/eval_mul.c \
+	harnesses/eval_umax_bound/eval_umax_bound.c \
+	harnesses/eval_smax_bound/eval_smax_bound.c
+
+# eval_divmod: unsigned div/mod ranges + the sign-contiguity signed
+# reinterpretation. The DivModBounds axioms (harness-scoped axioms_div.h;
+# NIA- and ESBMC-validated, no Qed lemmas so no extra @lemma pass) give the
+# linear div/mod facts, after which every goal — usound/ssound included —
+# proves monolithic in under a minute; no split, no stones.
+verify $FIXES -wp-timeout 300 \
+	-wp-fct eval_divmod \
+	harnesses/eval_divmod/eval_divmod_main.c \
+	harnesses/eval_divmod/eval_divmod.c \
+	harnesses/eval_smax_bound/eval_smax_bound.c
+
+[ -n "$FIXES" ] && helpers eval_divmod $FIXES -wp-timeout 60 \
+	-wp-fct dm_sext \
+	harnesses/eval_divmod/eval_divmod_main.c \
+	harnesses/eval_divmod/eval_divmod.c \
+	harnesses/eval_smax_bound/eval_smax_bound.c
+
+# eval_neg: pattern negation with cross-track limit exchange. The spec's
+# neg_pat is LINEAR (x==0 ? 0 : msk+1-x), so no operator axioms are needed
+# at all — the shared land/wrap set plus the neg_sext helper contract carry
+# every goal monolithic in seconds.
+verify $FIXES -wp-timeout 300 \
+	-wp-fct eval_neg \
+	harnesses/eval_neg/eval_neg_main.c \
+	harnesses/eval_neg/eval_neg.c
+
+[ -n "$FIXES" ] && helpers eval_neg $FIXES -wp-timeout 60 \
+	-wp-fct neg_sext \
+	harnesses/eval_neg/eval_neg_main.c \
+	harnesses/eval_neg/eval_neg.c
+
+# eval_defined: the operand-definedness rejection (upstream helper shared
+# by the ALU/jump/store/call evaluators) — exact iff contract, proves in
+# seconds. No FIX gate.
+verify -wp-timeout 20 \
+	-wp-fct eval_defined \
+	harnesses/eval_defined/eval_defined_main.c \
+	harnesses/eval_defined/eval_defined.c
+
+# eval_fill_imm64: the exact-constant primitive (unsigned track = the
+# w-bit pattern, signed track = its canonical reading).
+# FIX_FILL_IMM_SIGNED_32 (32-bit negative pattern stored unextended in
+# the signed track) is the gated bug; the fi_sext helper only exists in
+# the fixed build.
+verify $FIXES -wp-timeout 60 \
+	-wp-fct eval_fill_imm64 \
+	harnesses/eval_fill_imm64/eval_fill_imm64_main.c \
+	harnesses/eval_fill_imm64/eval_fill_imm64.c
+
+[ -n "$FIXES" ] && helpers eval_fill_imm64 $FIXES -wp-timeout 60 \
+	-wp-fct fi_sext \
+	harnesses/eval_fill_imm64/eval_fill_imm64_main.c \
+	harnesses/eval_fill_imm64/eval_fill_imm64.c
+
+# eval_fill_imm: constant materialisation over eval_fill_imm64's
+# contract — all goals prove in seconds.
+verify $FIXES -wp-timeout 60 \
+	-wp-fct eval_fill_imm \
+	harnesses/eval_fill_imm/eval_fill_imm_main.c \
+	harnesses/eval_fill_imm/eval_fill_imm.c \
+	harnesses/eval_fill_imm64/eval_fill_imm64.c
+
 verify $FIXES -wp-timeout 600 \
 	-wp-fct eval_apply_mask \
+	harnesses/eval_apply_mask/eval_apply_mask_main.c \
+	harnesses/eval_apply_mask/eval_apply_mask.c \
+	harnesses/eval_smax_bound/eval_smax_bound.c
+
+[ -n "$FIXES" ] && helpers eval_apply_mask $FIXES -wp-timeout 60 \
+	-wp-fct am_sext \
 	harnesses/eval_apply_mask/eval_apply_mask_main.c \
 	harnesses/eval_apply_mask/eval_apply_mask.c \
 	harnesses/eval_smax_bound/eval_smax_bound.c
@@ -298,6 +397,49 @@ verify $FIXES -wp-timeout 600 -wp-split \
 	harnesses/eval_max_bound/eval_max_bound.c \
 	harnesses/eval_smax_bound/eval_smax_bound.c \
 	harnesses/eval_umax_bound/eval_umax_bound.c
+
+# eval_alu: the dispatcher glue theorem (error semantics, register
+# invariant re-established at the op width; framing is certified by the
+# assigns clause — an explicit quantified frame ensures explodes, don't
+# add one; monolithic only — split makes uwidth/swidth flicker). Its TU
+# composes every operator implementation, so all scoped axiom families
+# are in scope of every PO; the vld_*/wid_*/ord_d stones hand the
+# operator requires-instances their facts directly.
+# 1200s: the two heaviest side-goal stones (vld_s32 ~707s, sx_vld64 ~578s
+# uncontended — range_validity over the branch-merged rs heap) need the
+# headroom, like eval_arsh's usound.
+# -no-warn-unaligned-pointer: the evst double indirection makes the
+# kernel emit an \aligned alarm, but WP does not implement \aligned at
+# all ("not yet implemented" — hypotheses dropped, goal degenerates), so
+# the alarm is unprovable noise in a WP pipeline; alignment holds for any
+# real allocation and is cross-checked by the BMC memsafety dimension.
+ISOLATE_PROPS="sx_vld32 sx_vld64 vld_s32 ord_dx ord_dk @requires" \
+verify $FIXES -wp-timeout 1200 -no-warn-unaligned-pointer \
+	-wp-fct eval_alu \
+	harnesses/eval_alu/eval_alu_main.c \
+	harnesses/eval_alu/eval_alu.c \
+	harnesses/eval_defined/eval_defined.c \
+	harnesses/eval_apply_mask/eval_apply_mask.c \
+	harnesses/eval_fill_imm/eval_fill_imm.c \
+	harnesses/eval_fill_imm64/eval_fill_imm64.c \
+	harnesses/eval_add/eval_add.c \
+	harnesses/eval_sub/eval_sub.c \
+	harnesses/eval_lsh/eval_lsh.c \
+	harnesses/eval_rsh/eval_rsh.c \
+	harnesses/eval_arsh/eval_arsh.c \
+	harnesses/eval_and/eval_and.c \
+	harnesses/eval_or/eval_or.c \
+	harnesses/eval_xor/eval_xor.c \
+	harnesses/eval_mul/eval_mul.c \
+	harnesses/eval_divmod/eval_divmod.c \
+	harnesses/eval_neg/eval_neg.c \
+	harnesses/eval_max_bound/eval_max_bound.c \
+	harnesses/eval_fill_max_bound/eval_fill_max_bound.c \
+	harnesses/eval_umax_bound/eval_umax_bound.c \
+	harnesses/eval_smax_bound/eval_smax_bound.c \
+	harnesses/eval_uand_max/eval_uand_max.c \
+	harnesses/eval_uor_max/eval_uor_max.c \
+	harnesses/eval_umax_bits/eval_umax_bits.c
 
 # 1200s: the slowest usound split part flickers at the 600s line under
 # load; uncontended it proves with margin at 1200.

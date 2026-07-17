@@ -19,23 +19,27 @@ predicate sign_determinate(struct bpf_reg_val *rv, uint64_t mask) =
 	rv->s.min >= 0 || rv->s.max < 0 ||
 	rv->u.min > (mask>>1) || rv->u.max <= (mask>>1);
 
-predicate min_sign_consistency(struct bpf_reg_val *rv, uint64_t mask) =
+predicate min_agreement(struct bpf_reg_val *rv, uint64_t mask) =
 	sign_determinate(rv, mask) ==>
 		rv->u.min == ((uint64_t)rv->s.min & mask);
 
-predicate max_sign_consistency(struct bpf_reg_val *rv, uint64_t mask) =
+predicate max_agreement(struct bpf_reg_val *rv, uint64_t mask) =
 	sign_determinate(rv, mask) ==>
 		rv->u.max == ((uint64_t)rv->s.max & mask);
 
-predicate range_sign_consistency(struct bpf_reg_val *rv, uint64_t mask) =
-	min_sign_consistency(rv, mask) && max_sign_consistency(rv, mask);
+predicate range_agreement(struct bpf_reg_val *rv, uint64_t mask) =
+	min_agreement(rv, mask) && max_agreement(rv, mask);
 
+// Scalar-only scope (per Marat): the UNDEF escape is dropped — every
+// register reaching an operator is a defined scalar, so validity is just
+// ordering + agreement. The dispatcher guards its register-file invariant
+// with an explicit is_scalar(...) ==> instead.
 predicate range_validity(struct bpf_reg_val *rv, uint64_t mask) =
-	rv->v.type == RTE_BPF_ARG_UNDEF ||
-	(range_ordering(rv) && range_sign_consistency(rv, mask));
+	range_ordering(rv) && range_agreement(rv, mask);
 
 predicate unsigned_range_within_width(struct bpf_reg_val *rv, uint64_t mask) =
 	rv->u.max <= mask;
+
 
 predicate signed_range_within_width(struct bpf_reg_val *rv, uint64_t mask) =
 	-(int64_t)(mask>>1) - 1 <= rv->s.min &&
@@ -53,5 +57,21 @@ predicate range_within_width(struct bpf_reg_val *rv, uint64_t mask) =
 //@ predicate is_scalar_or_pointer(integer t) = is_scalar(t) || is_pointer(t);
 
 #include "axioms.h"
+
+/*@
+// INTERSECTION-soundness witness (Marat's weaker form). A register denotes
+// the values in BOTH tracks: a pattern p with u.min<=p<=u.max AND its signed
+// reading s.min<=to_signed(p)<=s.max. Quantifying soundness over this set is
+// op(gamma(in)) subseteq gamma(out) with gamma = the intersection — it makes
+// range_agreement unnecessary for soundness, since the disagreeing patterns
+// agreement used to exclude are simply outside the quantifier's range.
+predicate un_witness(struct bpf_reg_val od, integer x, uint64_t mask) =
+	od.u.min <= x <= od.u.max &&
+	od.s.min <= to_signed(x, mask) <= od.s.max;
+
+predicate bin_witness(struct bpf_reg_val od, struct bpf_reg_val os,
+                      integer x, integer y, uint64_t mask) =
+	un_witness(od, x, mask) && un_witness(os, y, mask);
+*/
 
 #endif /* SPECS_H */

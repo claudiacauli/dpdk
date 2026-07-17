@@ -1,0 +1,28 @@
+method,table,check,cbmc,esbmc,wp
+eval_alu,contract,err_def,T,T,Y
+eval_alu,contract,err_dom,T,T,Y
+eval_alu,contract,noerr,T,T,Y
+eval_alu,contract,type_ok,T,T,Y
+eval_alu,contract,uord,T,T,Y
+eval_alu,contract,sord,T,T,Y
+eval_alu,contract,uwidth,T,T,Y
+eval_alu,contract,swidth,T,T,Y
+eval_alu,memsafety,bounds,T,T,Y
+eval_alu,memsafety,pointer,T,T,Y
+eval_alu,memsafety,division,T,T,-
+eval_alu,memsafety,signed-overflow,T,T,-
+eval_alu,memsafety,unsigned-overflow,T,!,-
+eval_alu,memsafety,shift,T,T,Y
+eval_alu,memsafety,memory-leak,T,T,-
+eval_alu,memsafety,nan,T,T,-
+eval_alu,memsafety,struct-fields,-,T,-
+eval_alu,memsafety,data-races,-,T,-
+eval_alu,memsafety,deadlock,-,T,-
+eval_alu,memsafety,lock-order,-,T,-
+eval_alu,memsafety,atomicity,-,T,-
+-,environment,frama-c,32.0 (Germanium),,
+-,environment,cbmc,6.9.0 (cbmc-6.9.0),,
+-,environment,esbmc,ESBMC version 8.4.0 64-bit aarch64 macos,,
+-,environment,z3,Z3 version 4.15.4 - 64 bit,,
+-,environment,alt-ergo,v2.6.2,,
+-,environment,host,Darwin arm64,,

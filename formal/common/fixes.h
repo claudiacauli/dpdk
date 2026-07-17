@@ -14,6 +14,10 @@
 #  define FIX_MUL_UGUARD
 #  define FIX_MUL_SCONST
 #  define FIX_MUL_SGUARD
+#  define FIX_DIVMOD_SIGNED_32
+#  define FIX_NEG_SIGNED_32
+#  define FIX_FILL_IMM_SIGNED_32
+#  define FIX_APPLY_MASK_CONSIST
 
 #endif
 
