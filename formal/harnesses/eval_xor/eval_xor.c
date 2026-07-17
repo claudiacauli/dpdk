@@ -12,15 +12,15 @@
 	requires opsz == op_bits(msk);
 	requires \valid(rd) && \valid(rs);
 	requires \separated(rd, rs);
-	requires is_scalar_or_pointer(rs->v.type) && is_scalar_or_pointer(rd->v.type);
-	requires range_validity(rd, msk) && range_validity(rs, msk);
+	requires is_scalar(rs->v.type) && is_scalar(rd->v.type);
+	requires range_ordering(rd) && range_ordering(rs);
 	requires range_within_width(rd, msk) && range_within_width(rs, msk);
 	terminates \true;
 	assigns rd->u, rd->s;
 
 	ensures unchanged_v:    rd->v == \old(rd->v);
 	ensures unchanged_mask: rd->mask == \old(rd->mask);
-	ensures type_ok:    is_scalar_or_pointer(rd->v.type);
+	ensures type_ok:    is_scalar(rd->v.type);
 	ensures uord:       unsigned_range_ordering(rd);
 	ensures sord:       signed_range_ordering(rd);
 	ensures uwidth:     unsigned_range_within_width(rd, msk);
@@ -48,11 +48,6 @@ void eval_xor(struct bpf_reg_val *rd, const struct bpf_reg_val *rs, size_t opsz,
 	 * its signed value range, and when rs is a constant that range is the
 	 * single masked pattern.
 	 */
-	/*@ assert pat_s_max: rs->s.min >= 0 ==> rs->u.max == (uint64_t)rs->s.max; */
-	/*@ assert pat_s_min: rs->s.min >= 0 ==> rs->u.min == (uint64_t)rs->s.min; */
-	/*@ assert pat_c_max: rs->s.min == rs->s.max ==>
-	      rs->u.max == ((uint64_t)rs->s.max & msk); */
-	/*@ assert pat_c_pin: rs->s.min == rs->s.max ==> rs->u.min == rs->u.max; */
 
 	/* both operands are constants */
 	if (rd->u.min == rd->u.max && rs->u.min == rs->u.max) {

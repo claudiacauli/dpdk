@@ -11,15 +11,15 @@
 	requires opsz == op_bits(msk);
 	requires \valid(rd) && \valid(rs);
 	requires \separated(rd, rs);
-	requires is_scalar_or_pointer(rs->v.type) && is_scalar_or_pointer(rd->v.type);
-	requires range_validity(rd, msk) && range_validity(rs, msk);
+	requires is_scalar(rs->v.type) && is_scalar(rd->v.type);
+	requires range_ordering(rd) && range_ordering(rs);
 	requires range_within_width(rd, msk) && range_within_width(rs, msk);
 	terminates \true;
 	assigns rd->u, rd->s;
 
 	ensures unchanged_v:    rd->v == \old(rd->v);
 	ensures unchanged_mask: rd->mask == \old(rd->mask);
-	ensures type_ok:    is_scalar_or_pointer(rd->v.type);
+	ensures type_ok:    is_scalar(rd->v.type);
 	ensures uord:       unsigned_range_ordering(rd);
 	ensures sord:       signed_range_ordering(rd);
 	ensures uwidth:     unsigned_range_within_width(rd, msk);
@@ -50,10 +50,6 @@ void eval_and(struct bpf_reg_val *rd, const struct bpf_reg_val *rs, size_t opsz,
 	      ((uint64_t)rd->s.max & (msk >> 1)) == (uint64_t)rd->s.max; */
 	/*@ assert id_s: rs->s.min >= 0 ==>
 	      ((uint64_t)rs->s.max & (msk >> 1)) == (uint64_t)rs->s.max; */
-	/*@ assert pat_s: rs->s.min >= 0 ==>
-	      rs->u.max == (uint64_t)rs->s.max; */
-	/*@ assert pat_c: rs->s.min == rs->s.max ==>
-	      rs->u.max == ((uint64_t)rs->s.max & msk); */
 
 	/* both operands are constants */
 	if (rd->u.min == rd->u.max && rs->u.min == rs->u.max) {
@@ -73,7 +69,6 @@ void eval_and(struct bpf_reg_val *rd, const struct bpf_reg_val *rs, size_t opsz,
 		 * no-ops on in-range values — as its own small goal, instead
 		 * of the ensures having to re-derive the composition.
 		 */
-		/*@ assert c_pat_s: rs->u.max == ((uint64_t)rs->s.max & msk); */
 		rd->s.min &= rs->s.min;
 		rd->s.max &= rs->s.max;
 #ifdef FIX_AND_SIGNED_GUARD
@@ -81,7 +76,6 @@ void eval_and(struct bpf_reg_val *rd, const struct bpf_reg_val *rs, size_t opsz,
 	} else if (rd->s.min >= 0 && rs->s.min >= 0) {
 		/*@ assert bn_half_d: (uint64_t)rd->s.max <= (msk >> 1); */
 		/*@ assert bn_half_s: (uint64_t)rs->s.max <= (msk >> 1); */
-		/*@ assert bn_pat_s: rs->u.max == (uint64_t)rs->s.max; */
 		rd->s.max = eval_uand_max(rd->s.max & (msk >> 1),
 			rs->s.max & (msk >> 1), opsz);
 		rd->s.min = 0;

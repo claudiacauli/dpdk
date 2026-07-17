@@ -15,7 +15,7 @@ logic integer wrap_diff(integer d, integer msk) =
 predicate eval_sub_unsigned_soundness(struct bpf_reg_val od, struct bpf_reg_val os,
                                        struct bpf_reg_val nw, uint64_t msk) =
 	\forall integer x, y;
-		od.u.min <= x <= od.u.max && os.u.min <= y <= os.u.max
+		bin_witness(od, os, x, y, msk)
 			==> nw.u.min <= wrap_diff(x - y, msk) <= nw.u.max;
 
 // to_signed comes from common/specs.h
@@ -23,7 +23,7 @@ predicate eval_sub_unsigned_soundness(struct bpf_reg_val od, struct bpf_reg_val 
 predicate eval_sub_signed_soundness(struct bpf_reg_val od, struct bpf_reg_val os,
                                     struct bpf_reg_val nw, uint64_t msk) =
 	\forall integer x, y;
-		od.s.min <= x <= od.s.max && os.s.min <= y <= os.s.max
+		bin_witness(od, os, x, y, msk)
 			==> nw.s.min <= to_signed(wrap_diff(x - y, msk), msk) <= nw.s.max;
 
 */

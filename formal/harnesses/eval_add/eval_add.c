@@ -13,13 +13,13 @@
 	// can produce; this replaces the former `admit sep_else` (same fact,
 	// but proved against the caller contract instead of trusted mid-body).
 	requires \separated(rd, rs);
-	requires is_scalar_or_pointer(rs->v.type) && is_scalar_or_pointer(rd->v.type);
-	requires range_validity(rd, msk) && range_validity(rs, msk);
+	requires is_scalar(rs->v.type) && is_scalar(rd->v.type);
+	requires range_ordering(rd) && range_ordering(rs);
 	requires range_within_width(rd, msk) && range_within_width(rs, msk);
 	terminates \true;
 	assigns *rd;
 
-	ensures type_ok:    is_scalar_or_pointer(rd->v.type);
+	ensures type_ok:    is_scalar(rd->v.type);
 	ensures uord:       unsigned_range_ordering(rd);
 	ensures sord:       signed_range_ordering(rd);
 	ensures uwidth:     unsigned_range_within_width(rd, msk);

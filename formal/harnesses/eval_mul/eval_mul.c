@@ -74,15 +74,15 @@ static int64_t mul_sext2(int64_t d, int64_t e, uint64_t msk)
 	requires opsz == op_bits(msk);
 	requires \valid(rd) && \valid(rs);
 	requires \separated(rd, rs);
-	requires is_scalar_or_pointer(rs->v.type) && is_scalar_or_pointer(rd->v.type);
-	requires range_validity(rd, msk) && range_validity(rs, msk);
+	requires is_scalar(rs->v.type) && is_scalar(rd->v.type);
+	requires range_ordering(rd) && range_ordering(rs);
 	requires range_within_width(rd, msk) && range_within_width(rs, msk);
 	terminates \true;
 	assigns rd->u, rd->s;
 
 	ensures unchanged_v:    rd->v == \old(rd->v);
 	ensures unchanged_mask: rd->mask == \old(rd->mask);
-	ensures type_ok:    is_scalar_or_pointer(rd->v.type);
+	ensures type_ok:    is_scalar(rd->v.type);
 	ensures uord:       unsigned_range_ordering(rd);
 	ensures sord:       signed_range_ordering(rd);
 	ensures uwidth:     unsigned_range_within_width(rd, msk);

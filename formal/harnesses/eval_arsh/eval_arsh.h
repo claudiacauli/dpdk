@@ -13,16 +13,16 @@
 predicate eval_arsh_signed_soundness(struct bpf_reg_val od, struct bpf_reg_val os,
                                      struct bpf_reg_val nw, uint64_t msk) =
 	\forall integer v, y;
-		od.s.min <= v <= od.s.max && os.u.min <= y <= os.u.max &&
+		bin_witness(od, os, v, y, msk) &&
 		y < op_bits(msk)
-			==> nw.s.min <= (v >> y) <= nw.s.max;
+			==> nw.s.min <= (to_signed(v, msk) >> y) <= nw.s.max;
 
 // Unsigned view of the same operation: take the pattern x, sign-extend
 // (to_signed), arithmetic-shift, re-encode as a w-bit pattern.
 predicate eval_arsh_unsigned_soundness(struct bpf_reg_val od, struct bpf_reg_val os,
                                        struct bpf_reg_val nw, uint64_t msk) =
 	\forall integer x, y;
-		od.u.min <= x <= od.u.max && os.u.min <= y <= os.u.max &&
+		bin_witness(od, os, x, y, msk) &&
 		y < op_bits(msk)
 			==> nw.u.min <=
 				(((uint64_t)(to_signed(x, msk) >> y)) & msk)

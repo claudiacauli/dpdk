@@ -11,7 +11,7 @@
 predicate eval_rsh_unsigned_soundness(struct bpf_reg_val od, struct bpf_reg_val os,
                                       struct bpf_reg_val nw, uint64_t msk) =
 	\forall integer x, y;
-		od.u.min <= x <= od.u.max && os.u.min <= y <= os.u.max &&
+		bin_witness(od, os, x, y, msk) &&
 		y < op_bits(msk)
 			==> nw.u.min <= (x >> y) <= nw.u.max;
 
@@ -20,7 +20,7 @@ predicate eval_rsh_unsigned_soundness(struct bpf_reg_val od, struct bpf_reg_val 
 predicate eval_rsh_signed_soundness(struct bpf_reg_val od, struct bpf_reg_val os,
                                     struct bpf_reg_val nw, uint64_t msk) =
 	\forall integer v, y;
-		od.s.min <= v <= od.s.max && os.u.min <= y <= os.u.max &&
+		bin_witness(od, os, v, y, msk) &&
 		y < op_bits(msk)
 			==> nw.s.min <=
 				to_signed((((uint64_t)v) & msk) >> y, msk)
