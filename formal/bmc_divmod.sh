@@ -24,20 +24,12 @@ OUT=$(mktemp -d)
 # ESBMC's bundled clang chains <stddef.h> etc. via #include_next to the
 # system compiler's builtin header dir. On Linux that dir is off the search
 # path, so the chain dead-ends ("stddef.h file not found") — add gcc's
-# include dir with -I to fix it. Probe first: on macOS the headers already
-# resolve and injecting a dir would instead break the chain, so only add it
-# when a bare compile actually fails. gcc's dir ONLY — adding clang's
+# include dir with -I so the chain resolves. gcc's dir ONLY: adding clang's
 # resource dir alongside pulls in version-mismatched headers that break
-# ESBMC's own clang. (Portable temp file: GNU mktemp rejects the old
-# `-t esbmc_probe` template for having no XXXXXX.)
+# ESBMC's own clang. (These are Linux big-box runners; not used on macOS.)
 SYSINC=
-PROBE="${TMPDIR:-/tmp}/esbmc_probe_$$.c"
-printf '#include <stdint.h>\nint main(void){uint64_t x=0;return (int)x;}\n' >"$PROBE"
-if ! esbmc "$PROBE" >/dev/null 2>&1; then
-	GCC_INC=$(gcc -print-file-name=include 2>/dev/null)
-	[ -f "$GCC_INC/stddef.h" ] && SYSINC="-I$GCC_INC"
-fi
-rm -f "$PROBE"
+GCC_INC=$(gcc -print-file-name=include 2>/dev/null)
+[ -f "$GCC_INC/stddef.h" ] && SYSINC="-I$GCC_INC"
 
 cell() { # label  defs...
 	local label=$1; shift
