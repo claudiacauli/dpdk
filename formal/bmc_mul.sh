@@ -20,15 +20,22 @@ SR="harnesses/eval_mul/eval_mul.c harnesses/eval_umax_bound/eval_umax_bound.c ha
 BMC=harnesses/eval_mul/eval_mul_bmc.c
 OUT=$(mktemp -d)
 
-# ESBMC's bundled clang can't find the system <stddef.h> on Linux
-# (its wrapper does #include_next with nothing to chain to). Add the
-# compiler's internal header dir so include_next resolves. Harmless on
-# macOS where the headers are already found.
+# ESBMC's bundled clang chains <stddef.h> etc. via #include_next to the
+# system compiler's builtin header dir. On Linux that dir is off the search
+# path, so the chain dead-ends ("stddef.h file not found") — add gcc's
+# include dir with -I to fix it. Probe first: on macOS the headers already
+# resolve and injecting a dir would instead break the chain, so only add it
+# when a bare compile actually fails. gcc's dir ONLY — adding clang's
+# resource dir alongside pulls in version-mismatched headers that break
+# ESBMC's own clang (that is what made every cell ERROR before).
 SYSINC=
-for d in "$(gcc -print-file-name=include 2>/dev/null)" \
-         "$(clang -print-resource-dir 2>/dev/null)/include"; do
-	[ -n "$d" ] && [ -f "$d/stddef.h" ] && SYSINC="$SYSINC -I$d"
-done
+PROBE="${TMPDIR:-/tmp}/esbmc_probe_$$.c"
+printf '#include <stdint.h>\nint main(void){uint64_t x=0;return (int)x;}\n' >"$PROBE"
+if ! esbmc "$PROBE" >/dev/null 2>&1; then
+	GCC_INC=$(gcc -print-file-name=include 2>/dev/null)
+	[ -f "$GCC_INC/stddef.h" ] && SYSINC="-I$GCC_INC"
+fi
+rm -f "$PROBE"
 
 cell() { # label  defs...
 	local label=$1; shift
