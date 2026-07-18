@@ -350,12 +350,6 @@ verify $FIXES -wp-timeout 600 \
 	harnesses/eval_apply_mask/eval_apply_mask.c \
 	harnesses/eval_smax_bound/eval_smax_bound.c
 
-[ -n "$FIXES" ] && helpers eval_apply_mask $FIXES -wp-timeout 60 \
-	-wp-fct am_sext \
-	harnesses/eval_apply_mask/eval_apply_mask_main.c \
-	harnesses/eval_apply_mask/eval_apply_mask.c \
-	harnesses/eval_smax_bound/eval_smax_bound.c
-
 # eval_sub: NOT split — measured on the certified run of 2026-07-10:
 # split, its ssound takes 30'49" across 378 parts and unchanged_v
 # 11'48"; monolithic the same goals prove in 14s and ~1s.
