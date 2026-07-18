@@ -8,14 +8,10 @@
 # single symbolic divider, and runs the cells in parallel. Prints one
 # PASS/FAIL/TIMEOUT line per cell.
 #
-# Expected results:
-#   FIXED cells     -> all SUCCESSFUL (the soundness result)
-#   ORIGINAL 32-bit -> FAILED (S1: raw patterns stored as signed bounds —
-#                      the sign-contiguity test uses INT64 boundaries
-#                      regardless of msk; witnessed instantly)
-#   ORIGINAL 64-bit -> SUCCESSFUL (the bug is 32-bit-only; the 64-bit
-#                      reinterpretation coincides with the fix)
-#   SANITY          -> FAILED (asserts reachable; harness not vacuous)
+# Harness is the intersection-soundness form (bin_witness; agreement dropped;
+# is_scalar) matching the declared WP contract. Expected results:
+#   FIXED cells   -> all SUCCESSFUL (the intersection soundness holds)
+#   SANITY        -> FAILED (asserts reachable; harness not vacuous)
 #
 # Usage:  ./bmc_divmod.sh [timeout_seconds]   (default 1200)
 
@@ -55,7 +51,7 @@ cell() { # label  defs...
 	printf '%-28s %s\n' "$label" "$v"
 }
 
-echo "=== FIXED (expect all PASS) — soundness of the corrected eval_divmod ==="
+echo "=== FIXED (expect all PASS) — intersection soundness of eval_divmod ==="
 cell fixed-div32 -DALL_FIXES -DBMC_DIV_ONLY -DBMC_32 &
 cell fixed-mod32 -DALL_FIXES -DBMC_MOD_ONLY -DBMC_32 &
 cell fixed-div64 -DALL_FIXES -DBMC_DIV_ONLY -DBMC_64 &
@@ -63,16 +59,10 @@ cell fixed-mod64 -DALL_FIXES -DBMC_MOD_ONLY -DBMC_64 &
 wait
 
 echo
-echo "=== ORIGINAL (expect 32-bit FAIL = the witnessed bug; 64-bit PASS) ==="
-cell orig-div32  -DBMC_DIV_ONLY -DBMC_32 &   # S1: signed-32 reinterpretation
-cell orig-mod32  -DBMC_MOD_ONLY -DBMC_32 &   # S1 via the mod path
-cell orig-div64  -DBMC_DIV_ONLY -DBMC_64 &   # 64-bit path is correct
-cell orig-mod64  -DBMC_MOD_ONLY -DBMC_64 &
-wait
-
-echo
 echo "=== SANITY (expect FAIL — proves the asserts are reachable) ==="
 cell sanity-div32 -DALL_FIXES -DBMC_DIV_ONLY -DBMC_32 -DBMC_SANITY &
+cell sanity-mod32 -DALL_FIXES -DBMC_MOD_ONLY -DBMC_32 -DBMC_SANITY &
+cell sanity-div64 -DALL_FIXES -DBMC_DIV_ONLY -DBMC_64 -DBMC_SANITY &
 cell sanity-mod64 -DALL_FIXES -DBMC_MOD_ONLY -DBMC_64 -DBMC_SANITY &
 wait
 

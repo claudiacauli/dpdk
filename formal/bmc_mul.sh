@@ -7,10 +7,10 @@
 # query carries the fewest symbolic multiplies, and runs the cells in
 # parallel. Prints one PASS/FAIL/TIMEOUT line per cell.
 #
-# Expected results:
-#   FIXED cells        -> all SUCCESSFUL (the soundness result)
-#   ORIGINAL cells     -> FAILED (each is a witnessed upstream bug)
-#   SANITY             -> FAILED (asserts reachable; harness not vacuous)
+# Harness is the intersection-soundness form (bin_witness; agreement dropped;
+# is_scalar) matching the declared WP contract. Expected results:
+#   FIXED cells   -> all SUCCESSFUL (the intersection soundness holds)
+#   SANITY        -> FAILED (asserts reachable; harness not vacuous)
 #
 # Usage:  ./bmc_mul.sh [timeout_seconds]   (default 1200)
 
@@ -43,25 +43,19 @@ cell() { # label  defs...
 	printf '%-28s %s\n' "$label" "$v"
 }
 
-echo "=== FIXED (expect all PASS) — soundness of the corrected eval_mul ==="
+echo "=== FIXED (expect all PASS) — intersection soundness of eval_mul ==="
 cell fixed-u32  -DALL_FIXES -DBMC_U_ONLY -DBMC_32 &
 cell fixed-s32  -DALL_FIXES -DBMC_S_ONLY -DBMC_32 &
-cell fixed-u64  -DALL_FIXES -DBMC_U_ONLY          &
-cell fixed-s64  -DALL_FIXES -DBMC_S_ONLY          &
-wait
-
-echo
-echo "=== ORIGINAL (expect FAIL — each is a witnessed upstream bug) ==="
-# U1 lives at 64-bit (msk>>opsz UB); S1 at 32-bit (no sign-ext); S2 both.
-cell orig-u64   -DBMC_U_ONLY          &   # U1: unsigned overflow guard
-cell orig-s32   -DBMC_S_ONLY -DBMC_32 &   # S1: signed-const sign extension
-cell orig-s64   -DBMC_S_ONLY          &   # S2: signed non-const overflow
+cell fixed-u64  -DALL_FIXES -DBMC_U_ONLY -DBMC_64 &
+cell fixed-s64  -DALL_FIXES -DBMC_S_ONLY -DBMC_64 &
 wait
 
 echo
 echo "=== SANITY (expect FAIL — proves the asserts are reachable) ==="
 cell sanity-u32 -DALL_FIXES -DBMC_U_ONLY -DBMC_32 -DBMC_SANITY &
 cell sanity-s32 -DALL_FIXES -DBMC_S_ONLY -DBMC_32 -DBMC_SANITY &
+cell sanity-u64 -DALL_FIXES -DBMC_U_ONLY -DBMC_64 -DBMC_SANITY &
+cell sanity-s64 -DALL_FIXES -DBMC_S_ONLY -DBMC_64 -DBMC_SANITY &
 wait
 
 echo

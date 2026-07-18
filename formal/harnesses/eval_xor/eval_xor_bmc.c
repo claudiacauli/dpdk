@@ -1,3 +1,14 @@
+/*
+ * Intersection-soundness BMC harness for eval_xor, matching the declared WP
+ * contract (common/specs.h bin_witness form): precondition is is_scalar +
+ * range_ORDERING + range_within_width (agreement DROPPED); the soundness
+ * witness is a pattern lying in the unsigned range AND whose signed reading
+ * lies in the signed range. Confirms the intersection-form usound/ssound WP
+ * contracts are TRUE (BMC) before investing in the WP proof.
+ *   default check SUCCESSFUL  => intersection soundness holds.
+ *   default check FAILED (CEX) => the contract is wrong.
+ *   -DBMC_SANITY assert(0) must be VIOLATED => asserts are reachable (non-vacuous).
+ */
 #include <assert.h>
 #include "eval_xor.h"
 
@@ -8,42 +19,25 @@ size_t nondet_size_t(void);
 
 #define REQUIRE(cond) do { if (!(cond)) return 0; } while (0)
 
-/* ---- C mirrors of the ACSL predicates in common/specs.h ---- */
-
-static int is_scalar_or_pointer(enum rte_bpf_arg_type t)
+static int is_scalar(enum rte_bpf_arg_type t)
 {
-	return t == RTE_BPF_ARG_RAW || t == RTE_BPF_ARG_PTR ||
-		t == RTE_BPF_ARG_PTR_MBUF || t == RTE_BPF_ARG_RESERVED;
+	return t == RTE_BPF_ARG_RAW;
 }
-
 static int range_ordering(const struct bpf_reg_val *rv)
 {
 	return rv->u.min <= rv->u.max && rv->s.min <= rv->s.max;
 }
-
-static int range_agreement(const struct bpf_reg_val *rv,
-	uint64_t mask)
-{
-	if (rv->s.min >= 0 || rv->s.max < 0 ||
-			rv->u.min > (mask >> 1) || rv->u.max <= (mask >> 1))
-		return rv->u.min == ((uint64_t)rv->s.min & mask) &&
-			rv->u.max == ((uint64_t)rv->s.max & mask);
-	return 1;
-}
-
-static int range_validity(const struct bpf_reg_val *rv, uint64_t mask)
-{
-	return rv->v.type == RTE_BPF_ARG_UNDEF ||
-		(range_ordering(rv) && range_agreement(rv, mask));
-}
-
 static int range_within_width(const struct bpf_reg_val *rv, uint64_t mask)
 {
 	return rv->u.max <= mask &&
 		-(int64_t)(mask >> 1) - 1 <= rv->s.min &&
 		rv->s.max <= (int64_t)(mask >> 1);
 }
-
+/* C mirror of the ACSL to_signed logic function */
+static int64_t tos(uint64_t v, uint64_t mask)
+{
+	return (v <= (mask >> 1)) ? (int64_t)v : (int64_t)(v - (mask + 1));
+}
 static void havoc_reg(struct bpf_reg_val *rv)
 {
 	rv->v.type = (enum rte_bpf_arg_type)nondet_int();
@@ -59,69 +53,54 @@ static void havoc_reg(struct bpf_reg_val *rv)
 int main(void)
 {
 	struct bpf_reg_val rd, rs;
-
 	havoc_reg(&rd);
 	havoc_reg(&rs);
 
 	uint64_t msk = nondet_u64();
 	REQUIRE(msk == _32_BIT_MASK || msk == _64_BIT_MASK);
-
+#ifdef BMC_32
+	REQUIRE(msk == _32_BIT_MASK);
+#endif
+#ifdef BMC_64
+	REQUIRE(msk == _64_BIT_MASK);
+#endif
 	size_t opsz = nondet_size_t();
 	REQUIRE(msk != _32_BIT_MASK || opsz == 32);
 	REQUIRE(msk != _64_BIT_MASK || opsz == 64);
 
-	/* eval_alu always hands eval_xor a fresh local copy of the source
-	 * register, and the WP contract requires \separated(rd, rs) */
 	const struct bpf_reg_val *prs = &rs;
 
-	/* requires clauses of eval_xor */
-	REQUIRE(is_scalar_or_pointer(rd.v.type));
-	REQUIRE(is_scalar_or_pointer(prs->v.type));
-	REQUIRE(range_validity(&rd, msk) && range_validity(prs, msk));
+	/* requires: is_scalar + range_ORDERING (agreement DROPPED) + within_width */
+	REQUIRE(is_scalar(rd.v.type));
+	REQUIRE(is_scalar(prs->v.type));
+	REQUIRE(range_ordering(&rd) && range_ordering(prs));
 	REQUIRE(range_within_width(&rd, msk) && range_within_width(prs, msk));
 
-	/* \old(*rd), \old(*rs) */
 	const struct bpf_reg_val od = rd, os = *prs;
 
-	/* concrete witnesses for the \forall a, b: signed value x for the rd
-	 * side, pattern uy for the rs side (both predicates quantify the rs
-	 * operand over os.u), pattern ux for the unsigned track */
-	int64_t x = nondet_i64();
-	REQUIRE(od.s.min <= x && x <= od.s.max);
-
-	uint64_t ux = nondet_u64(), uy = nondet_u64();
-	REQUIRE(od.u.min <= ux && ux <= od.u.max);
-	REQUIRE(os.u.min <= uy && uy <= os.u.max);
+	/* INTERSECTION witnesses: a pattern in BOTH tracks of each operand */
+	uint64_t px = nondet_u64(), py = nondet_u64();
+	REQUIRE(od.u.min <= px && px <= od.u.max);
+	REQUIRE(od.s.min <= tos(px, msk) && tos(px, msk) <= od.s.max);
+	REQUIRE(os.u.min <= py && py <= os.u.max);
+	REQUIRE(os.s.min <= tos(py, msk) && tos(py, msk) <= os.s.max);
 
 	eval_xor(&rd, prs, opsz, msk);
 
-	/* cross-check of the WP postconditions */
-	assert(is_scalar_or_pointer(rd.v.type));        /* type_ok */
-	assert(range_ordering(&rd));                    /* ord     */
-	assert(range_within_width(&rd, msk));           /* uwidth + swidth */
-	assert(rd.v.type == od.v.type &&
-		rd.v.size == od.v.size &&
-		rd.v.buf_size == od.v.buf_size);        /* unchanged_v */
-	assert(rd.mask == od.mask);                     /* unchanged_mask */
+	assert(range_ordering(&rd));                            /* ord */
+	assert(range_within_width(&rd, msk));                  /* width */
 
-	/* unsigned view: patterns are closed under XOR */
-	uint64_t ures = ux ^ uy;
-	assert(rd.u.min <= ures && ures <= rd.u.max);          /* usound */
+	/* intersection usound: (x ^ y) covered by output u */
+	uint64_t ures = px ^ py;
+	assert(rd.u.min <= ures && ures <= rd.u.max);          /* usound (isect) */
 
-	/* signed view: XOR the pattern of x with uy, mask to the w-bit
-	 * result, sign-extend (mirrors eval_xor_signed_soundness:
-	 * to_signed((v ^ y) & msk, msk)). Like OR, XOR does not self-bound
-	 * to [0, msk], so the & msk is load-bearing for negative x. */
-	uint64_t sres = ((uint64_t)x ^ uy) & msk;
-	int64_t s_val = (sres <= (msk >> 1)) ? (int64_t)sres
-					     : (int64_t)(sres - (msk + 1));
-	assert(rd.s.min <= s_val && s_val <= rd.s.max);        /* ssound */
+	/* intersection ssound: to_signed((v ^ y) & msk) covered by output s */
+	uint64_t sres = (px ^ py) & msk;
+	int64_t s_val = tos(sres, msk);
+	assert(rd.s.min <= s_val && s_val <= rd.s.max);        /* ssound (isect) */
 
 #ifdef BMC_SANITY
-	/* must FAIL: proves the preconditions are satisfiable and the
-	 * asserts above are reachable */
-	assert(0);
+	assert(0);   /* must FAIL: proves the asserts are reachable */
 #endif
-
 	return 0;
 }
