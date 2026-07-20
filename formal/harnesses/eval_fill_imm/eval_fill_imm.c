@@ -21,6 +21,14 @@
 	ensures agree_min: min_agreement(rv, mask);
 	ensures agree_max: max_agreement(rv, mask);
 	ensures valid:      range_validity(rv, mask);
+
+	// SELF-OPTIMALITY: TRIVIAL (Category C) but stated as a first-class clause
+	// anyway -- see eval_fill_imm64.c for the reasoning. const_u/const_s pin a
+	// SINGLE-POINT register, so all four endpoints coincide and each is attained.
+	// No OP-optimality clause: there is no input register to be optimal with
+	// respect to. This is the FREE BASE CASE for a self-optimality-preservation
+	// invariant (optimality_notes.md §6i, §7 #2).
+	ensures selfopt:    self_optimal(*rv, mask);
 */
 void
 eval_fill_imm(struct bpf_reg_val *rv, uint64_t mask, int32_t imm)

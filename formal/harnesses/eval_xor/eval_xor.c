@@ -27,6 +27,33 @@
 	ensures swidth:     signed_range_within_width(rd, msk);
 	ensures usound:     eval_xor_unsigned_soundness(\old(*rd), \old(*rs), *rd, msk);
 	ensures ssound:     eval_xor_signed_soundness(\old(*rd), \old(*rs), *rd, msk);
+
+	// OP-OPTIMALITY: NOT achievable (Category B -- optimality_notes.md §6d). XOR's
+	// u.max IS eval_uor_max (since a^b <= a|b), so its looseness COINCIDES with OR:
+	// the all-ones fill is reached only by disjoint-bit pairs. No endpoint formula,
+	// no op-optimality ensures. BMC-confirmed loose (eval_xor_opt_bmc.c). Soundness
+	// above stays UNCONDITIONAL.
+
+	// OP-OPTIMALITY (Category B). XOR breaks the idempotence witness that works
+	// for AND and OR: x = y = E gives E ^ E == 0, not E. The identity element is
+	// ZERO instead, so the witness pair is (E, 0) and the guard needs zero to be
+	// representable in the SOURCE operand rather than E representable in both.
+	// That is a genuinely different -- and strictly easier to satisfy on the rs
+	// side -- regime than eval_and / eval_or.
+	ensures uopt:
+		un_witness(\old(*rd), rd->u.max, msk) &&
+		un_witness(\old(*rd), rd->u.min, msk) &&
+		un_witness(\old(*rs), 0, msk)
+			==> eval_xor_unsigned_optimal(\old(*rd), \old(*rs), *rd, msk);
+
+	// Signed twin: witness is (pattern of E, 0), recovered through
+	// to_signed_pattern_id (axioms_and.h, in scope above). Unwrapped `& msk`
+	// shape deliberately -- the cast form would need lemmas_canon.h.
+	ensures sopt:
+		un_witness(\old(*rd), rd->s.max & msk, msk) &&
+		un_witness(\old(*rd), rd->s.min & msk, msk) &&
+		un_witness(\old(*rs), 0, msk)
+			==> eval_xor_signed_optimal(\old(*rd), \old(*rs), *rd, msk);
 */
 void eval_xor(struct bpf_reg_val *rd, const struct bpf_reg_val *rs, size_t opsz,
 	uint64_t msk)
@@ -79,4 +106,15 @@ void eval_xor(struct bpf_reg_val *rd, const struct bpf_reg_val *rs, size_t opsz,
 		rd->s.min = 0;
 	} else
 		eval_smax_bound(rd, msk);
+
+	/* Optimality witness stones: ZERO is XOR's identity (not idempotence),
+	 * plus the canonical-window facts the round-trip axiom needs. */
+	/*@ assert uopt_id_max: (rd->u.max ^ 0) == rd->u.max; */
+	/*@ assert uopt_id_min: (rd->u.min ^ 0) == rd->u.min; */
+	/*@ assert sopt_half_max: -(msk >> 1) - 1 <= rd->s.max <= (msk >> 1); */
+	/*@ assert sopt_half_min: -(msk >> 1) - 1 <= rd->s.min <= (msk >> 1); */
+	/*@ assert sopt_rt_max: to_signed(rd->s.max & msk, msk) == rd->s.max; */
+	/*@ assert sopt_rt_min: to_signed(rd->s.min & msk, msk) == rd->s.min; */
+	/*@ assert sopt_id_max: ((rd->s.max & msk) ^ 0) == (rd->s.max & msk); */
+	/*@ assert sopt_id_min: ((rd->s.min & msk) ^ 0) == (rd->s.min & msk); */
 }

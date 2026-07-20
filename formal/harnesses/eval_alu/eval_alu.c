@@ -104,6 +104,10 @@
 		signed_range_within_width(&bvf->evst->rv[ins->dst_reg],
 			alu_msk(ins->code));
 	// (usound/ssound value soundness is PARKED — see the header note.)
+	// OP-OPTIMALITY: per-branch -- eval_alu only DISPATCHES to the per-op eval_*
+	// functions, so op-optimality (and its self-optimality precondition) is exactly
+	// that of the branch taken; nothing to state at the dispatcher level.
+	// optimality_notes.md §6h.
 */
 const char *
 eval_alu(struct bpf_verifier *bvf, const struct ebpf_insn *ins)
@@ -198,22 +202,38 @@ eval_alu(struct bpf_verifier *bvf, const struct ebpf_insn *ins)
 
 	/*
 	 * Operand-wellformedness stones: every operator requires
-	 * range_validity + range_within_width of both operands at msk.
-	 * apply_mask's (FIX_APPLY_MASK_CONSIST) unconditional ensures and
-	 * fill_imm's exact-constant ensures give them; asserting them HERE
-	 * hands each requires-instance a ground fact instead of a re-
-	 * derivation inside the giant post-dispatch POs.
+	 * range_ORDERING + range_within_width of both operands at msk (NOT
+	 * validity -- the intersection-soundness refactor dropped agreement
+	 * from every operator's precondition). apply_mask's and fill_imm's
+	 * ensures give them; asserting them HERE hands each requires-instance
+	 * a ground fact instead of a re-derivation inside the giant
+	 * post-dispatch POs.
+	 *
+	 * `vld_d: range_validity(rd, msk)` USED to sit here and is DELETED
+	 * (2026-07-19). It was FALSE at this point and had never proved:
+	 * eval_apply_mask does not re-establish AGREEMENT across a width
+	 * change, and the FIX_APPLY_MASK_CONSIST repair the old comment
+	 * appealed to was never implemented (defined in common/fixes.h, no
+	 * #ifdef anywhere). Its only consumer was eval_neg, whose
+	 * range_validity precondition has been relaxed to range_ordering now
+	 * that FIX_NEG_CROSS_INVERT guards the cross-track clamps directly.
+	 * BMC grid: harnesses/eval_neg/eval_neg_pre_bmc.c.
 	 */
-	/*@ assert vld_d: range_validity(rd, msk); */
+	/*@ assert ord_d2: range_ordering(rd); */
 	/*@ assert wid_d: range_within_width(rd, msk); */
 	// scalar-scope: hand each operator's is_scalar(...) requires-instance a
 	// ground fact (from inv_d/inv_s via the ty_* type-provenance stones).
 	/*@ assert sc_d: is_scalar(rd->v.type); */
 	/*@ assert sc_s: is_scalar(rs.v.type); */
-	/*@ assert vld_s32: msk == _32_BIT_MASK ==>
-	      range_validity(&rs, msk); */
-	/*@ assert vld_s64: msk == _64_BIT_MASK ==>
-	      range_validity(&rs, msk); */
+	/*
+	 * `vld_s32` / `vld_s64` (range_validity of the SOURCE operand) were
+	 * DELETED here (2026-07-19), for the same reason as vld_d above: both
+	 * were FALSE and neither had ever proved. No operator requires
+	 * range_validity any more -- the intersection-soundness refactor
+	 * dropped it everywhere, and eval_neg (the last holdout) is unary, so
+	 * it never even sees `rs`. Source ordering comes from ord_s below.
+	 */
+	/*@ assert ord_s2: range_ordering(&rs); */
 	/*@ assert wid_s32: msk == _32_BIT_MASK ==>
 	      range_within_width(&rs, msk); */
 	/*@ assert wid_s64: msk == _64_BIT_MASK ==>

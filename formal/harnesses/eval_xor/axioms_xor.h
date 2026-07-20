@@ -77,6 +77,25 @@ axiomatic LxorBounds {
 		(m == 0xFFFFFFFF || m == 0xFFFFFFFFFFFFFFFF) &&
 		-(m >> 1) - 1 <= v <= (m >> 1) && 0 <= p <= m
 		==> to_signed((v ^ p) & m, m) == (v ^ to_signed(p, m));
+	// Decode commutes with XOR of TWO patterns (the both-pattern form of
+	// to_signed_lxor_pat above). Needed by ssound's signed-CONSTANT
+	// branch (split parts 01/08/15 = the sw_xor_c path x each u-path):
+	// there the bin_witness decode is pinned to a possibly NEGATIVE
+	// constant whose pattern exceeds msk >> 1 — outside the canonical
+	// window, so to_signed_lxor_pat never fires (lxor is not
+	// AC-normalized, the second slot cannot rescue it) and nothing
+	// matches to_signed((v ^ y) & msk, msk). Sign-extension replicates
+	// bit w-1 into bits w..63 and XOR is bitwise, so XOR of
+	// sign-extensions == sign-extension of the masked XOR. Mask kept
+	// SYMBOLIC as above. Isolated experiment (2026-07-20): the s-const
+	// obligation times out with the axiom set above, proves in 36ms with
+	// this one added.
+	axiom to_signed_lxor_both:
+		\forall integer p, q, m;
+		(m == 0xFFFFFFFF || m == 0xFFFFFFFFFFFFFFFF) &&
+		0 <= p <= m && 0 <= q <= m
+		==> to_signed((p ^ q) & m, m)
+			== (to_signed(p, m) ^ to_signed(q, m));
 }
 */
 

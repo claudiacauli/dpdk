@@ -28,6 +28,10 @@
 		0 <= a <= v1 && 0 <= b <= v2 ==> (a & b) <= \result;
 	ensures uand_half64: opsz == 64 && v2 <= 0x7FFFFFFFFFFFFFFF ==>
 		\result <= 0x7FFFFFFFFFFFFFFF;
+	// OP-OPTIMALITY: value-loose by construction (Category B). \result =
+	// umax_bits(v1) & umax_bits(v2), the bit-FILL AND bound behind eval_and;
+	// optimal only WITHIN the bit-abstraction (via umax_bits' `optimal`), not as a
+	// value bound -- optimality_notes.md §6d/§6h.
 */
 uint64_t eval_uand_max(uint64_t v1, uint64_t v2, size_t opsz)
 {

@@ -4,6 +4,7 @@
 #include "../../common/shared.h"
 #include "../../common/specs.h"
 #include "axioms_arsh.h"
+#include "../../common/lemmas_canon.h"
 
 /*@
 // Arithmetic right shift. ACSL's >> on mathematical integers IS floor
@@ -27,6 +28,23 @@ predicate eval_arsh_unsigned_soundness(struct bpf_reg_val od, struct bpf_reg_val
 			==> nw.u.min <=
 				(((uint64_t)(to_signed(x, msk) >> y)) & msk)
 				<= nw.u.max;
+
+// OP-OPTIMALITY (arsh-optimal). Each output endpoint is ATTAINED by a
+// representable (value, shift) corner (bin_witness), shift < width. PRELIMINARY
+// (optimality_notes.md); the signed track is op-optimal for shift < width; the
+// unsigned track additionally needs the pattern interval NOT to span the sign
+// boundary (the spanning case has no tight interval and widens to [0,msk]).
+predicate eval_arsh_signed_optimal(struct bpf_reg_val od, struct bpf_reg_val os,
+                                   struct bpf_reg_val nw, uint64_t msk) =
+	(\exists integer v, y; bin_witness(od, os, v, y, msk) && y < op_bits(msk) && (to_signed(v, msk) >> y) == nw.s.max) &&
+	(\exists integer v, y; bin_witness(od, os, v, y, msk) && y < op_bits(msk) && (to_signed(v, msk) >> y) == nw.s.min);
+
+predicate eval_arsh_unsigned_optimal(struct bpf_reg_val od, struct bpf_reg_val os,
+                                     struct bpf_reg_val nw, uint64_t msk) =
+	(\exists integer x, y; bin_witness(od, os, x, y, msk) && y < op_bits(msk) &&
+		(((uint64_t)(to_signed(x, msk) >> y)) & msk) == nw.u.max) &&
+	(\exists integer x, y; bin_witness(od, os, x, y, msk) && y < op_bits(msk) &&
+		(((uint64_t)(to_signed(x, msk) >> y)) & msk) == nw.u.min);
 */
 
 void eval_arsh(struct bpf_reg_val *rd, const struct bpf_reg_val *rs, size_t opsz, uint64_t msk);

@@ -25,7 +25,7 @@ axiomatic ClzWindow {
 		==> v <= (_64_BIT_MASK >> r);
 
 	// v lives above half of its own bit-length mask. The leading one
-	// contributes 2^(63-r). Needed by `tight` and by the `width` chain.
+	// contributes 2^(63-r). Needed by `optimal` and by the `width` chain.
 	axiom clz_window_lo:
 		\forall integer v, r;
 		0 <= v && 0 <= r <= 63 && (v >> (63 - r)) == 1

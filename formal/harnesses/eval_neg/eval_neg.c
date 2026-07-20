@@ -1,4 +1,16 @@
 #include "eval_neg.h"
+/*
+ * to_signed_canon_rt became load-bearing for ssound when the 2026-07-19
+ * relaxation replaced `requires range_validity` with `requires
+ * range_ordering`: the old (caller-unestablishable) precondition
+ * supplied range_agreement's ground u.* == s.* & mask equations, which
+ * indirectly carried the signed endpoints' round-trip. With the honest
+ * precondition the PO derives every signed output endpoint as
+ * to_signed(((uint64_t)w) & msk, msk) for canonical w, and without this
+ * lemma the solver must re-derive the collapse through to_signed's ite
+ * over a SYMBOLIC mask — it spins (ssound 0/1, 2026-07-20).
+ */
+#include "../../common/lemmas_canon.h"
 
 #ifdef FIX_NEG_SIGNED_32
 /*
@@ -23,7 +35,17 @@ static int64_t neg_sext(uint64_t p, uint64_t msk)
 	requires opsz == op_bits(msk);
 	requires \valid(rd);
 	requires is_scalar(rd->v.type);
-	requires range_validity(rd, msk);
+	// Relaxed from range_validity to range_ordering (2026-07-19), enabled by
+	// FIX_NEG_CROSS_INVERT below. The intersection-soundness refactor dropped
+	// range_validity from every other operator; eval_neg was missed, and the
+	// only thing still needing agreement was uord/sord -- the cross-track
+	// clamps could cross and emit an EMPTY interval. Guarding that directly is
+	// strictly better than demanding agreement from the caller, because
+	// eval_apply_mask cannot supply it: BMC grid (eval_neg_pre_bmc.c) shows
+	// apply_mask ESTABLISHES ordering but never agreement, while eval_neg with
+	// the guard is SUFFICIENT from ordering alone. That in turn retires
+	// eval_alu's `vld_d` stone, which was false at its call site.
+	requires range_ordering(rd);
 	requires range_within_width(rd, msk);
 	terminates \true;
 	assigns rd->u, rd->s;
@@ -37,6 +59,24 @@ static int64_t neg_sext(uint64_t p, uint64_t msk)
 	ensures swidth:     signed_range_within_width(rd, msk);
 	ensures usound:     eval_neg_unsigned_soundness(\old(*rd), *rd, msk);
 	ensures ssound:     eval_neg_signed_soundness(\old(*rd), *rd, msk);
+
+	// OP-OPTIMALITY (neg-optimal). Soundness above stays UNCONDITIONAL;
+	// op-optimality is conditional on a SELF-OPTIMAL input plus exclusion of the
+	// width-min (INT_MIN) wrap, which negates to itself and breaks
+	// anti-monotonicity -- BMC (eval_neg_opt_bmc.c, both widths) showed that is
+	// the lone residual, and the same two guards appear there as the
+	// self_optimal REQUIREs plus BMC_NOWRAP.
+	//
+	// The witness is forced, which is what makes this provable: neg_pat is an
+	// INVOLUTION on [0, msk], so the only value that can attain an output
+	// endpoint e is neg_pat(e) -- there is nothing to search for. self_optimal
+	// then discharges that the preimage is representable.
+	ensures uopt: self_optimal(\old(*rd), msk) &&
+		\old(rd->s.min) > -(int64_t)(msk >> 1) - 1
+			==> eval_neg_unsigned_optimal(\old(*rd), *rd, msk);
+	ensures sopt: self_optimal(\old(*rd), msk) &&
+		\old(rd->s.min) > -(int64_t)(msk >> 1) - 1
+			==> eval_neg_signed_optimal(\old(*rd), *rd, msk);
 */
 void
 eval_neg(struct bpf_reg_val *rd, size_t opsz, uint64_t msk)
@@ -76,6 +116,22 @@ eval_neg(struct bpf_reg_val *rd, size_t opsz, uint64_t msk)
 
 		if (rd->u.max != 0)
 			rd->u.max = UINT64_MAX;
+
+#ifdef FIX_NEG_ZERO
+		/*
+		 * Precision (not soundness): the widening above sets u.max to the
+		 * full width, but under the intersection semantics with a SELF-OPTIMAL
+		 * input, if s.max <= 0 there is no representable positive, so no
+		 * pattern negates into the high half and the unsigned image tops
+		 * out at -s.min. (Self-optimality guarantees pattern(s.min) <= u.max, so
+		 * s.min is representable and -s.min IS attained — the self-suboptimal
+		 * truncation case where this would overshoot is excluded by the
+		 * op-optimality precondition.) Bound u.max via cross_limits; generalizes
+		 * the s.min == INT_MIN wrap case below.
+		 */
+		if (rd->s.max <= 0)
+			cross_limits.u.max = -(uint64_t)rd->s.min;
+#endif
 	} else {
 		ux = -rd->u.min & msk;
 		uy = -rd->u.max & msk;
@@ -160,4 +216,72 @@ eval_neg(struct bpf_reg_val *rd, size_t opsz, uint64_t msk)
 #endif
 	rd->u.min = RTE_MAX(rd->u.min, cross_limits.u.min) & msk;
 	rd->u.max = RTE_MIN(rd->u.max, cross_limits.u.max) & msk;
+
+#ifdef FIX_NEG_CROSS_INVERT
+	/*
+	 * The four clamps above pull from OPPOSITE directions: each min is
+	 * raised toward a cross-track limit while the matching max is lowered
+	 * toward another. When the two tracks disagree the limits pass each
+	 * other and the interval INVERTS -- e.g. u=[0,10], s=[-3,-1] at msk64
+	 * gives cross_s=[-10,0] against a negated s of [1,3], so
+	 * s.min = MAX(1,-10) = 1 and s.max = MIN(3,0) = 0, i.e. s=[1,0].
+	 *
+	 * An inverted interval denotes the EMPTY set, so every downstream range
+	 * check on the register is vacuously satisfiable -- the unsound
+	 * direction. Upstream never detects this: no operator re-checks
+	 * ordering after a cross-track clamp.
+	 *
+	 * Repair (same shape as FIX_APPLY_MASK_SIGNED): if a clamp pair
+	 * crossed, the cross-track information was contradictory, so keep no
+	 * information rather than empty information -- widen that track to the
+	 * width's full range. Sound and non-empty; imprecise only on inputs
+	 * that were already inconsistent.
+	 */
+	if (rd->s.min > rd->s.max) {
+		rd->s.max = (int64_t)(msk >> 1);
+		rd->s.min = -rd->s.max - 1;
+	}
+	if (rd->u.min > rd->u.max) {
+		rd->u.min = 0;
+		rd->u.max = msk;
+	}
+#endif
+
+	/*
+	 * OP-OPTIMALITY stones. neg_pat is an involution on [0,msk], so the
+	 * witness for output endpoint e is forced to be neg_pat(e) -- the
+	 * existential has exactly one candidate and nothing is searched for. Each
+	 * _wit_ stone says that forced preimage is representable in the INPUT
+	 * (which is what self_optimal buys); each _inv_ stone is the involution
+	 * instance that turns it back into the endpoint.
+	 */
+	/*@ assert uopt_inv_umax:
+	      neg_pat(neg_pat(rd->u.max, msk), msk) == rd->u.max; */
+	/*@ assert uopt_inv_umin:
+	      neg_pat(neg_pat(rd->u.min, msk), msk) == rd->u.min; */
+	/*@ assert sopt_inv_smax:
+	      neg_pat(neg_pat(((uint64_t)rd->s.max) & msk, msk), msk)
+	        == (((uint64_t)rd->s.max) & msk); */
+	/*@ assert sopt_inv_smin:
+	      neg_pat(neg_pat(((uint64_t)rd->s.min) & msk, msk), msk)
+	        == (((uint64_t)rd->s.min) & msk); */
+
+	/*@ assert uopt_wit_umax:
+	      self_optimal(\at(*rd,Pre), msk) &&
+	      \at(rd->s.min,Pre) > -(int64_t)(msk >> 1) - 1 ==>
+	        un_witness(\at(*rd,Pre), neg_pat(rd->u.max, msk), msk); */
+	/*@ assert uopt_wit_umin:
+	      self_optimal(\at(*rd,Pre), msk) &&
+	      \at(rd->s.min,Pre) > -(int64_t)(msk >> 1) - 1 ==>
+	        un_witness(\at(*rd,Pre), neg_pat(rd->u.min, msk), msk); */
+	/*@ assert sopt_wit_smax:
+	      self_optimal(\at(*rd,Pre), msk) &&
+	      \at(rd->s.min,Pre) > -(int64_t)(msk >> 1) - 1 ==>
+	        un_witness(\at(*rd,Pre),
+	                   neg_pat(((uint64_t)rd->s.max) & msk, msk), msk); */
+	/*@ assert sopt_wit_smin:
+	      self_optimal(\at(*rd,Pre), msk) &&
+	      \at(rd->s.min,Pre) > -(int64_t)(msk >> 1) - 1 ==>
+	        un_witness(\at(*rd,Pre),
+	                   neg_pat(((uint64_t)rd->s.min) & msk, msk), msk); */
 }

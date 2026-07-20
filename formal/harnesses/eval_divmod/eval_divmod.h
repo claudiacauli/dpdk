@@ -36,6 +36,26 @@ predicate eval_divmod_signed_soundness(integer op, struct bpf_reg_val od,
 			==> nw.s.min <=
 			    to_signed(op == BPF_DIV ? x / y : x % y, msk)
 			    <= nw.s.max;
+
+// OP-OPTIMALITY (divmod-optimal). Each output endpoint is ATTAINED by a
+// representable input PAIR (bin_witness), divisor y >= 1. PRELIMINARY
+// (optimality_notes.md); MOD's remainder bound is op-optimal, DIV is op-optimal
+// only when the minimum divisor is 1 (else loose -- see the .c contract).
+predicate eval_divmod_unsigned_optimal(integer op, struct bpf_reg_val od,
+                                       struct bpf_reg_val os,
+                                       struct bpf_reg_val nw, uint64_t msk) =
+	(\exists integer x, y; bin_witness(od, os, x, y, msk) && 1 <= y &&
+		(op == BPF_DIV ? x / y : x % y) == nw.u.max) &&
+	(\exists integer x, y; bin_witness(od, os, x, y, msk) && 1 <= y &&
+		(op == BPF_DIV ? x / y : x % y) == nw.u.min);
+
+predicate eval_divmod_signed_optimal(integer op, struct bpf_reg_val od,
+                                     struct bpf_reg_val os,
+                                     struct bpf_reg_val nw, uint64_t msk) =
+	(\exists integer x, y; bin_witness(od, os, x, y, msk) && 1 <= y &&
+		to_signed(op == BPF_DIV ? x / y : x % y, msk) == nw.s.max) &&
+	(\exists integer x, y; bin_witness(od, os, x, y, msk) && 1 <= y &&
+		to_signed(op == BPF_DIV ? x / y : x % y, msk) == nw.s.min);
 */
 
 const char *eval_divmod(uint32_t op, struct bpf_reg_val *rd,

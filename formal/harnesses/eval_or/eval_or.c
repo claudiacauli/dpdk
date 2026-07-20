@@ -27,6 +27,36 @@
 	ensures swidth:     signed_range_within_width(rd, msk);
 	ensures usound:     eval_or_unsigned_soundness(\old(*rd), \old(*rs), *rd, msk);
 	ensures ssound:     eval_or_signed_soundness(\old(*rd), \old(*rs), *rd, msk);
+
+	// OP-OPTIMALITY: NOT achievable (Category B -- optimality_notes.md §6d).
+	// u.max = eval_uor_max(rd.u.max, rs.u.max) = umax_bits(v1) | umax_bits(v2), a
+	// bit-FILL bound; the all-ones fill is reached only by bit-aligned inputs, so
+	// max(a|b) has no endpoint formula and no op-optimality ensures. BMC-confirmed
+	// loose (eval_or_opt_bmc.c). Soundness above stays UNCONDITIONAL.
+	//
+	// ...BUT the regime where the bit-fill bound IS attained is stateable, by the
+	// same construction proved for eval_and: if an output endpoint is itself
+	// representable in BOTH inputs, then x = y = that endpoint is an available
+	// pair, and OR (like AND) is IDEMPOTENT, so it reproduces the endpoint.
+	// un_witness rather than plain interval containment because eval_or does not
+	// require range_agreement either, and bin_witness constrains both tracks.
+	ensures uopt:
+		un_witness(\old(*rd), rd->u.max, msk) &&
+		un_witness(\old(*rs), rd->u.max, msk) &&
+		un_witness(\old(*rd), rd->u.min, msk) &&
+		un_witness(\old(*rs), rd->u.min, msk)
+			==> eval_or_unsigned_optimal(\old(*rd), \old(*rs), *rd, msk);
+
+	// Signed twin: witness is the PATTERN of each endpoint, recovered through
+	// to_signed_pattern_id (axioms_and.h, in scope above). Unwrapped `& msk`
+	// shape deliberately -- the cast form would need lemmas_canon.h and would
+	// silently fail to trigger.
+	ensures sopt:
+		un_witness(\old(*rd), rd->s.max & msk, msk) &&
+		un_witness(\old(*rs), rd->s.max & msk, msk) &&
+		un_witness(\old(*rd), rd->s.min & msk, msk) &&
+		un_witness(\old(*rs), rd->s.min & msk, msk)
+			==> eval_or_signed_optimal(\old(*rd), \old(*rs), *rd, msk);
 */
 void eval_or(struct bpf_reg_val *rd, const struct bpf_reg_val *rs, size_t opsz,
 	uint64_t msk)
@@ -84,4 +114,18 @@ void eval_or(struct bpf_reg_val *rd, const struct bpf_reg_val *rs, size_t opsz,
 		rd->s.min = RTE_MAX(rd->s.min, rs->s.min);
 	} else
 		eval_smax_bound(rd, msk);
+
+	/* Optimality witness stones: idempotence of | on each output endpoint,
+	 * plus the canonical-window facts the round-trip axiom needs (swidth is
+	 * an ensures, and ensures are not hypotheses of one another). */
+	/*@ assert uopt_idem_max: (rd->u.max | rd->u.max) == rd->u.max; */
+	/*@ assert uopt_idem_min: (rd->u.min | rd->u.min) == rd->u.min; */
+	/*@ assert sopt_half_max: -(msk >> 1) - 1 <= rd->s.max <= (msk >> 1); */
+	/*@ assert sopt_half_min: -(msk >> 1) - 1 <= rd->s.min <= (msk >> 1); */
+	/*@ assert sopt_rt_max: to_signed(rd->s.max & msk, msk) == rd->s.max; */
+	/*@ assert sopt_rt_min: to_signed(rd->s.min & msk, msk) == rd->s.min; */
+	/*@ assert sopt_idem_max:
+	      ((rd->s.max & msk) | (rd->s.max & msk)) == (rd->s.max & msk); */
+	/*@ assert sopt_idem_min:
+	      ((rd->s.min & msk) | (rd->s.min & msk)) == (rd->s.min & msk); */
 }

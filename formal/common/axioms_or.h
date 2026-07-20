@@ -79,6 +79,21 @@ axiomatic LorBounds {
 		(m == 0xFFFFFFFF || m == 0xFFFFFFFFFFFFFFFF) &&
 		-(m >> 1) - 1 <= v <= (m >> 1) && 0 <= p <= m
 		==> to_signed((v | p) & m, m) == (v | to_signed(p, m));
+	// Decode commutes with OR of TWO patterns (the both-pattern form of
+	// to_signed_lor_pat above). Needed by ssound's signed-CONSTANT
+	// branch: there the bin_witness decode is pinned to a possibly
+	// NEGATIVE constant whose pattern v = A & msk exceeds msk >> 1 —
+	// outside the canonical window, so to_signed_lor_pat never fires and
+	// nothing matches to_signed((v | y) & msk, msk). Sign-extension
+	// replicates bit w-1 into bits w..63 and OR is bitwise, so OR of
+	// sign-extensions == sign-extension of the masked OR. Mask kept
+	// SYMBOLIC for the same trigger reason as above.
+	axiom to_signed_lor_both:
+		\forall integer p, q, m;
+		(m == 0xFFFFFFFF || m == 0xFFFFFFFFFFFFFFFF) &&
+		0 <= p <= m && 0 <= q <= m
+		==> to_signed((p | q) & m, m)
+			== (to_signed(p, m) | to_signed(q, m));
 	// The cover workhorse: bits of a live in m1's all-ones window and
 	// bits of b in m2's, so bits of a|b live in the union window m1|m2.
 	// eval_uor_max instantiates this at m1 = eval_umax_bits(v1),

@@ -17,6 +17,19 @@ predicate eval_or_unsigned_soundness(struct bpf_reg_val od, struct bpf_reg_val o
 	\forall integer x, y;
 		bin_witness(od, os, x, y, msk)
 			==> nw.u.min <= (x | y) <= nw.u.max;
+
+// OP-OPTIMALITY (Category B, narrow regime -- see eval_or.c for the guard).
+predicate eval_or_unsigned_optimal(struct bpf_reg_val od, struct bpf_reg_val os,
+                                    struct bpf_reg_val nw, uint64_t msk) =
+	(\exists integer x, y; bin_witness(od, os, x, y, msk) && (x | y) == nw.u.max) &&
+	(\exists integer x, y; bin_witness(od, os, x, y, msk) && (x | y) == nw.u.min);
+
+predicate eval_or_signed_optimal(struct bpf_reg_val od, struct bpf_reg_val os,
+                                  struct bpf_reg_val nw, uint64_t msk) =
+	(\exists integer x, y; bin_witness(od, os, x, y, msk)
+	                       && to_signed(x | y, msk) == nw.s.max) &&
+	(\exists integer x, y; bin_witness(od, os, x, y, msk)
+	                       && to_signed(x | y, msk) == nw.s.min);
 */
 
 void eval_or(struct bpf_reg_val *rd, const struct bpf_reg_val *rs, size_t opsz, uint64_t msk);

@@ -49,6 +49,21 @@ lemma mul_ssound_overflow:
 		od.s.max * os.s.max <= nw.s.max &&
 		od.s.max * os.s.max <= (msk >> 1)
 		==> eval_mul_signed_soundness(od, os, nw, msk);
+
+// OP-OPTIMALITY (mul-optimal). Each output endpoint is ATTAINED by a
+// representable input PAIR (bin_witness). PRELIMINARY (optimality_notes.md);
+// nonlinear but corner-based on non-negatives (products are monotone there), so
+// Category A: op-optimal from SELF-OPTIMAL operands in the no-overflow regime;
+// the signed track only when BOTH operands are non-negative (mixed signs widen).
+predicate eval_mul_unsigned_optimal(struct bpf_reg_val od, struct bpf_reg_val os,
+                                    struct bpf_reg_val nw, uint64_t msk) =
+	(\exists integer x, y; bin_witness(od, os, x, y, msk) && ((x * y) & msk) == nw.u.max) &&
+	(\exists integer x, y; bin_witness(od, os, x, y, msk) && ((x * y) & msk) == nw.u.min);
+
+predicate eval_mul_signed_optimal(struct bpf_reg_val od, struct bpf_reg_val os,
+                                  struct bpf_reg_val nw, uint64_t msk) =
+	(\exists integer v, w; bin_witness(od, os, v, w, msk) && to_signed((v * w) & msk, msk) == nw.s.max) &&
+	(\exists integer v, w; bin_witness(od, os, v, w, msk) && to_signed((v * w) & msk, msk) == nw.s.min);
 */
 
 void eval_mul(struct bpf_reg_val *rd, const struct bpf_reg_val *rs, size_t opsz, uint64_t msk);

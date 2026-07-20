@@ -89,6 +89,44 @@ static int64_t mul_sext2(int64_t d, int64_t e, uint64_t msk)
 	ensures swidth:     signed_range_within_width(rd, msk);
 	ensures usound:     eval_mul_unsigned_soundness(\old(*rd), \old(*rs), *rd, msk);
 	ensures ssound:     eval_mul_signed_soundness(\old(*rd), \old(*rs), *rd, msk);
+
+	// OP-OPTIMALITY (mul-optimal). Nonlinear but CORNER-based: on non-negatives the
+	// product is monotone in both operands, so the corner products are the extremes
+	// -- Category A, NOT B. Soundness above is UNCONDITIONAL.
+	//
+	// THE GUARDS MIRROR THE CODE'S OWN BRANCH CONDITIONS, and deliberately not the
+	// weaker "the product fits" an earlier draft used. Those are NOT the same:
+	// the code takes its fast path only when BOTH operands are below the half-width
+	// bound, which is strictly stronger than the product fitting. With msk 2^64-1,
+	// rd.u.max = 2^40 and rs.u.max = 2 the product 2^41 fits the width, yet
+	// rd.u.max exceeds msk >> 32 so eval_umax_bound fires and the result is NOT
+	// op-optimal. A "product <= msk" guard would therefore be false as stated --
+	// the same trap eval_lsh's sopt guard fell into. Derive the guard from the
+	// branch condition, never from the mathematical no-overflow condition.
+	//
+	// Both guards also cover the constants branch, which is exact (hence
+	// op-optimal) and is tested first.
+	//
+	// GATED behind PROVE_OPTIMALITY (2026-07-20): the ~13 witness stones
+	// these ensures need are `assert`s -- hypotheses of EVERY later PO --
+	// and their nonlinear product / masked-product e-nodes multiply the
+	// e-matching candidates for the mul axiom family inside every
+	// usound/ssound split part (the documented §6l hazard: earlier stones
+	// moved 75->70/77; these moved 77->58/61). The driver proves
+	// uopt/sopt + stones in a dedicated -DPROVE_OPTIMALITY cell; the
+	// soundness cell compiles without. BACKLOG C5 tracks the permanent
+	// folded-lemma form (mirroring mul_usound/ssound_overflow).
+#ifdef PROVE_OPTIMALITY
+	ensures uopt: self_optimal(\old(*rd), msk) && self_optimal(\old(*rs), msk) &&
+		\old(rd->u.max) <= (msk >> (opsz / 2)) &&
+		\old(rs->u.max) <= (msk >> (opsz / 2))
+			==> eval_mul_unsigned_optimal(\old(*rd), \old(*rs), *rd, msk);
+	ensures sopt: self_optimal(\old(*rd), msk) && self_optimal(\old(*rs), msk) &&
+		\old(rd->s.min) >= 0 && \old(rs->s.min) >= 0 &&
+		\old(rd->s.max) <= ((msk >> 1) >> (opsz / 2)) &&
+		\old(rs->s.max) <= ((msk >> 1) >> (opsz / 2))
+			==> eval_mul_signed_optimal(\old(*rd), \old(*rs), *rd, msk);
+#endif
 */
 void eval_mul(struct bpf_reg_val *rd, const struct bpf_reg_val *rs, size_t opsz,
 	uint64_t msk)
@@ -186,4 +224,91 @@ void eval_mul(struct bpf_reg_val *rd, const struct bpf_reg_val *rs, size_t opsz,
 		rd->s.min *= rs->s.min;
 	} else
 		eval_smax_bound(rd, msk);
+
+#ifdef PROVE_OPTIMALITY
+	/*
+	 * OP-OPTIMALITY stones. On non-negatives the product is monotone in BOTH
+	 * operands, so the corners are UNCROSSED: u.max <- (rd.u.max, rs.u.max),
+	 * u.min <- (rd.u.min, rs.u.min). self_optimal supplies the corner
+	 * un_witnesses that form each bin_witness; the _sum_ stones say those
+	 * corner products are exactly the stored endpoints, which needs the
+	 * guarded no-overflow (the u_nof and s_nof stones above) to strip `& msk`.
+	 * The u track needs no frame step: nothing in the signed block writes
+	 * rd->u (eval_smax_bound assigns only rv->s).
+	 *
+	 * The whole block is gated with the uopt/sopt ensures: these asserts'
+	 * nonlinear product e-nodes are assumed into every soundness PO and
+	 * were diagnosed as what pushed the usound/ssound split tails past
+	 * the ceiling (see the contract comment). u_nof/s_nof above are NOT
+	 * gated -- they predate optimality and serve the soundness proof.
+	 */
+	/*@ assert uopt_wit_umax:
+	      self_optimal(\at(*rd,Pre), msk) && self_optimal(\at(*rs,Pre), msk) ==>
+	        bin_witness(\at(*rd,Pre), \at(*rs,Pre),
+	                    \at(rd->u.max,Pre), \at(rs->u.max,Pre), msk); */
+	/*@ assert uopt_wit_umin:
+	      self_optimal(\at(*rd,Pre), msk) && self_optimal(\at(*rs,Pre), msk) ==>
+	        bin_witness(\at(*rd,Pre), \at(*rs,Pre),
+	                    \at(rd->u.min,Pre), \at(rs->u.min,Pre), msk); */
+	/*@ assert uopt_sum_umax:
+	      \at(rd->u.max,Pre) <= (msk >> (opsz / 2)) &&
+	      \at(rs->u.max,Pre) <= (msk >> (opsz / 2)) ==>
+	        ((\at(rd->u.max,Pre) * \at(rs->u.max,Pre)) & msk) == rd->u.max; */
+	/*@ assert uopt_sum_umin:
+	      \at(rd->u.max,Pre) <= (msk >> (opsz / 2)) &&
+	      \at(rs->u.max,Pre) <= (msk >> (opsz / 2)) ==>
+	        ((\at(rd->u.min,Pre) * \at(rs->u.min,Pre)) & msk) == rd->u.min; */
+
+	/*@ assert sopt_wit_smax:
+	      self_optimal(\at(*rd,Pre), msk) && self_optimal(\at(*rs,Pre), msk) ==>
+	        bin_witness(\at(*rd,Pre), \at(*rs,Pre),
+	                    ((uint64_t)\at(rd->s.max,Pre)) & msk,
+	                    ((uint64_t)\at(rs->s.max,Pre)) & msk, msk); */
+	/*@ assert sopt_wit_smin:
+	      self_optimal(\at(*rd,Pre), msk) && self_optimal(\at(*rs,Pre), msk) ==>
+	        bin_witness(\at(*rd,Pre), \at(*rs,Pre),
+	                    ((uint64_t)\at(rd->s.min,Pre)) & msk,
+	                    ((uint64_t)\at(rs->s.min,Pre)) & msk, msk); */
+	/* Bridge the two representations. The optimality WITNESS is a PATTERN
+	 * (((uint64_t)s.max) & msk), but the constants branch computes via
+	 * mul_sext2 on CANONICAL values and the fast branch multiplies the
+	 * canonical s fields directly. Under the guard both endpoints are
+	 * non-negative and within width, so the encoding is the identity and the
+	 * two forms coincide -- stating that once collapses the pattern layer out
+	 * of the _sum_ goals below. */
+	/*@ assert sopt_pat_id:
+	      \at(rd->s.min,Pre) >= 0 && \at(rs->s.min,Pre) >= 0 ==>
+	        (((uint64_t)\at(rd->s.max,Pre)) & msk) == \at(rd->s.max,Pre) &&
+	        (((uint64_t)\at(rs->s.max,Pre)) & msk) == \at(rs->s.max,Pre); */
+	/* PER-MASK, following the u_nof/s_nof precedent above: pinning msk to a
+	 * literal folds op_bits, the /2 and the guard shift into constants, so the
+	 * B*B <= msk>>1 bound the mask-strip needs becomes ground arithmetic. The
+	 * mask-symbolic form of this stone proves only 75/77 split parts, and
+	 * (measured) adding post-merge no-overflow stones to help it made it WORSE,
+	 * 70/77 -- extra hypotheses enlarge the nonlinear search. smin needs no such
+	 * split: its product is dominated by smax's via s_mono. */
+	/*@ assert sopt_sum_smax32:
+	      msk == 0xFFFFFFFF &&
+	      \at(rd->s.min,Pre) >= 0 && \at(rs->s.min,Pre) >= 0 &&
+	      \at(rd->s.max,Pre) <= ((msk >> 1) >> (opsz / 2)) &&
+	      \at(rs->s.max,Pre) <= ((msk >> 1) >> (opsz / 2)) ==>
+	        to_signed(((((uint64_t)\at(rd->s.max,Pre)) & msk) *
+	                   (((uint64_t)\at(rs->s.max,Pre)) & msk)) & msk, msk)
+	          == rd->s.max; */
+	/*@ assert sopt_sum_smax64:
+	      msk == 0xFFFFFFFFFFFFFFFF &&
+	      \at(rd->s.min,Pre) >= 0 && \at(rs->s.min,Pre) >= 0 &&
+	      \at(rd->s.max,Pre) <= ((msk >> 1) >> (opsz / 2)) &&
+	      \at(rs->s.max,Pre) <= ((msk >> 1) >> (opsz / 2)) ==>
+	        to_signed(((((uint64_t)\at(rd->s.max,Pre)) & msk) *
+	                   (((uint64_t)\at(rs->s.max,Pre)) & msk)) & msk, msk)
+	          == rd->s.max; */
+	/*@ assert sopt_sum_smin:
+	      \at(rd->s.min,Pre) >= 0 && \at(rs->s.min,Pre) >= 0 &&
+	      \at(rd->s.max,Pre) <= ((msk >> 1) >> (opsz / 2)) &&
+	      \at(rs->s.max,Pre) <= ((msk >> 1) >> (opsz / 2)) ==>
+	        to_signed(((((uint64_t)\at(rd->s.min,Pre)) & msk) *
+	                   (((uint64_t)\at(rs->s.min,Pre)) & msk)) & msk, msk)
+	          == rd->s.min; */
+#endif
 }

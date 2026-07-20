@@ -20,7 +20,10 @@
 	ensures half32: opsz == 32 && v <= 0x7FFFFFFF ==> \result <= 0x7FFFFFFF;
 	ensures half64: opsz == 64 && v <= 0x7FFFFFFFFFFFFFFF ==>
 		\result <= 0x7FFFFFFFFFFFFFFF;
-	ensures tight: v != 0 ==> (\result >> 1) <= v;
+	ensures optimal: v != 0 ==> (\result >> 1) <= v;
+	// NOTE: `optimal` above IS this helper's op-optimality -- \result is the
+	// tightest 2^k-1 bit-fill bound (best abstract transformer WITHIN the
+	// bit-abstraction). This is the weaker notion and/or/xor inherit (§1/§6h).
 */
 uint64_t eval_umax_bits(uint64_t v, size_t opsz)
 {

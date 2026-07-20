@@ -480,6 +480,23 @@ static void lor_bounds(void)
 			assert(lhs == ((__int128)v | dec_p));
 		}
 	}
+	/* to_signed_lor_both: patterns p, q <= m ==>
+	   to_signed((p | q) & m, m) == to_signed(p, m) | to_signed(q, m),
+	   both masks */
+	{
+		uint64_t p64 = nondet_u64(), q64 = nondet_u64();
+		uint64_t ms[2] = { 0xFFFFFFFFULL, 0xFFFFFFFFFFFFFFFFULL };
+		int k = nondet_int() ? 1 : 0;
+		__int128 m = ms[k], half = m >> 1, p = p64, q = q64;
+		if (p <= m && q <= m) {
+			__int128 lor_pq = (p | q) & m;
+			__int128 lhs = (lor_pq <= half) ? lor_pq
+							: lor_pq - (m + 1);
+			__int128 dec_p = (p <= half) ? p : p - (m + 1);
+			__int128 dec_q = (q <= half) ? q : q - (m + 1);
+			assert(lhs == (dec_p | dec_q));
+		}
+	}
 	/* lor_allones_mono: 0<=a<=m1, 0<=b<=m2, m1/m2 all-ones ==>
 	   (a | b) <= (m1 | m2) */
 	{
@@ -570,6 +587,23 @@ static void lxor_bounds(void)
 			assert(lhs == ((__int128)v ^ dec_p));
 		}
 	}
+	/* to_signed_lxor_both: patterns p, q <= m ==>
+	   to_signed((p ^ q) & m, m) == to_signed(p, m) ^ to_signed(q, m),
+	   both masks */
+	{
+		uint64_t p64 = nondet_u64(), q64 = nondet_u64();
+		uint64_t ms[2] = { 0xFFFFFFFFULL, 0xFFFFFFFFFFFFFFFFULL };
+		int k = nondet_int() ? 1 : 0;
+		__int128 m = ms[k], half = m >> 1, p = p64, q = q64;
+		if (p <= m && q <= m) {
+			__int128 lxor_pq = (p ^ q) & m;
+			__int128 lhs = (lxor_pq <= half) ? lxor_pq
+							 : lxor_pq - (m + 1);
+			__int128 dec_p = (p <= half) ? p : p - (m + 1);
+			__int128 dec_q = (q <= half) ? q : q - (m + 1);
+			assert(lhs == (dec_p ^ dec_q));
+		}
+	}
 }
 
 /* ---------------- MulBounds (common/axioms_mul.h) --------------------- */
@@ -633,6 +667,81 @@ static void divmod_bounds(void)
 	}
 }
 
+/* ---------------- ShiftOptBranchSel (common/axioms_shift_opt.h) -------- */
+
+/*
+ * Branch-selection facts for the shift family's op-optimality proofs.
+ * `m` ranges over the two supported masks only, so op_bits(m) is 32 or
+ * 64 and both cases are enumerated explicitly rather than left nondet.
+ */
+static void shift_opt_family(void)
+{
+	/* lsr_sign_clear: m in {2^32-1, 2^64-1}, 0 <= v <= m>>1 ==>
+	   ((uint64_t)v >> (op_bits(m) - 1)) == 0
+	   (the CONVERSE of lsr_sign_any; (uint64_t)v is WP's to_uint64(v)) */
+	{
+		int64_t v = nondet_i64();
+		if (0 <= v && v <= (int64_t)(0xFFFFFFFFULL >> 1))
+			assert(((uint64_t)v >> (32 - 1)) == 0);
+	}
+	{
+		int64_t v = nondet_i64();
+		if (0 <= v && v <= (int64_t)(ALL1 >> 1))
+			assert(((uint64_t)v >> (64 - 1)) == 0);
+	}
+	/* len2mask_shift_u: 0 <= q < op_bits(m) ==>
+	   (2^64-1) >> (64 - (op_bits(m) - q)) == m >> q */
+	{
+		uint64_t q = nondet_u64();
+		if (q < 32)
+			assert((ALL1 >> (unsigned)(64 - (32 - q))) ==
+			       (0xFFFFFFFFULL >> (unsigned)q));
+	}
+	{
+		uint64_t q = nondet_u64();
+		if (q < 64)
+			assert((ALL1 >> (unsigned)(64 - (64 - q))) ==
+			       (ALL1 >> (unsigned)q));
+	}
+	/* len2mask_shift_s is a WP-PROVED lemma, not a trusted axiom; checked
+	   here anyway since it costs nothing and guards against a later
+	   restatement drifting into an axiom. 0 <= q <= op_bits(m) - 2 ==>
+	   (2^64-1) >> (64 - (op_bits(m) - q - 1)) == (m >> 1) >> q */
+	{
+		uint64_t q = nondet_u64();
+		if (q <= 30)
+			assert((ALL1 >> (unsigned)(64 - (32 - q - 1))) ==
+			       ((0xFFFFFFFFULL >> 1) >> (unsigned)q));
+	}
+	{
+		uint64_t q = nondet_u64();
+		if (q <= 62)
+			assert((ALL1 >> (unsigned)(64 - (64 - q - 1))) ==
+			       ((ALL1 >> 1) >> (unsigned)q));
+	}
+	/* to_signed_canon_rt (also a WP-PROVED lemma, checked for the same
+	   reason): -(m>>1)-1 <= w <= m>>1 ==> to_signed(((uint64_t)w)&m, m) == w,
+	   with to_signed(v,m) = v <= (m>>1) ? v : v - (m+1). */
+	{
+		int64_t w = nondet_i64();
+		if (-(int64_t)(0xFFFFFFFFULL >> 1) - 1 <= w &&
+		    w <= (int64_t)(0xFFFFFFFFULL >> 1)) {
+			uint64_t p = ((uint64_t)w) & 0xFFFFFFFFULL;
+			int64_t dec = (p <= (0xFFFFFFFFULL >> 1)) ? (int64_t)p
+				: (int64_t)p - (int64_t)(0xFFFFFFFFULL + 1);
+			assert(dec == w);
+		}
+	}
+	{
+		/* m == 2^64-1: m+1 is 2^64, outside uint64, but the decode
+		   `p - 2^64` for p >= 2^63 is exactly the int64 reading of p,
+		   so (int64_t)p IS to_signed(p, ALL1). */
+		int64_t w = nondet_i64();
+		uint64_t p = ((uint64_t)w) & ALL1;
+		assert((int64_t)p == w);
+	}
+}
+
 /* ---------------- trusted function contracts (common/shared.h) --------- */
 
 static void rte_clz64_contract(void)
@@ -663,6 +772,7 @@ int main(void)
 	lxor_bounds();
 	mul_bounds();
 	divmod_bounds();
+	shift_opt_family();
 	rte_clz64_contract();
 	return 0;
 }

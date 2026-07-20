@@ -12,6 +12,9 @@
 	ensures def_iff: (\result != \null) <==>
 		((dst != \null && dst->v.type == RTE_BPF_ARG_UNDEF) ||
 		 (src != \null && src->v.type == RTE_BPF_ARG_UNDEF));
+
+	// OP-OPTIMALITY / SELF-OPTIMALITY: N/A -- a definedness CHECK (assigns
+	// \nothing), not a range transformer; no endpoint-attainment notion.
 */
 const char *
 eval_defined(const struct bpf_reg_val *dst, const struct bpf_reg_val *src)

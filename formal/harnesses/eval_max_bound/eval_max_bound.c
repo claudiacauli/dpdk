@@ -21,6 +21,20 @@
 	ensures agree_max: max_agreement(rv, mask);
 	ensures uwidth:     unsigned_range_within_width(rv, mask);
 	ensures swidth:     signed_range_within_width(rv, mask);
+
+	// OP-OPTIMALITY: N/A -- a Top-producer setting BOTH tracks to full width
+	// ([0,mask] x [INT_MIN,INT_MAX]); no endpoint-attainment notion. Unlike the
+	// single-track umax/smax_bound, the full-width-BOTH output IS self-optimal (all
+	// four endpoints are cross-track representable). optimality_notes.md §6h.
+	//
+	// SELF-OPTIMALITY: stated rather than left to the comment above. Top_w is a
+	// REDUCED element: 0 and mask are the u-endpoints and decode to 0 and -1,
+	// both inside [INT_MIN_w, INT_MAX_w]; the s-endpoints encode to the patterns
+	// 2^(w-1) and 2^(w-1)-1, both inside [0, mask]. So each of the four endpoints
+	// is attained by a value the OTHER track also admits, at both widths. Matters
+	// because self_optimal is the precondition every op-optimality guard carries:
+	// a Top-collapsing branch must not poison the optimality chain downstream.
+	ensures selfopt:    self_optimal(*rv, mask);
 */
 void eval_max_bound(struct bpf_reg_val *rv, uint64_t mask)
 {

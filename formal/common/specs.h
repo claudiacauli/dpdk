@@ -72,6 +72,25 @@ predicate un_witness(struct bpf_reg_val od, integer x, uint64_t mask) =
 predicate bin_witness(struct bpf_reg_val od, struct bpf_reg_val os,
                       integer x, integer y, uint64_t mask) =
 	un_witness(od, x, mask) && un_witness(os, y, mask);
+
+// SELF-OPTIMALITY (input optimality). A register is self-optimal when each of
+// its four range endpoints is itself attained by a representable value -- i.e.
+// the ranges are the TIGHTEST abstraction of its OWN value set, not a loose
+// over-approximation of it. It is the natural precondition for propagating
+// OP-OPTIMALITY through an operator: no operator can recover an op-optimal
+// output from a self-suboptimal input (two concrete sets with the same range
+// endpoints but different interiors are indistinguishable to the operator).
+// In Abstract Interpretation terms this is a REDUCED element -- a fixpoint of
+// the reduced-product reduction alpha.gamma over our two interval tracks
+// (unsigned + signed); a domain where every element is self-optimal would be a
+// Galois insertion. PRELIMINARY -- introduced during the eval_neg optimality
+// study (2026-07, see optimality_notes.md); whether every operator needs and
+// preserves self-optimality is still under evaluation across the other ops.
+predicate self_optimal(struct bpf_reg_val rv, uint64_t msk) =
+	un_witness(rv, rv.u.min, msk) &&
+	un_witness(rv, rv.u.max, msk) &&
+	un_witness(rv, (uint64_t)rv.s.min & msk, msk) &&
+	un_witness(rv, (uint64_t)rv.s.max & msk, msk);
 */
 
 #endif /* SPECS_H */

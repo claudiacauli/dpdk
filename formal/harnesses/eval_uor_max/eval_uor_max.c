@@ -37,6 +37,10 @@
 		0 <= a <= v1 && 0 <= b <= v2 ==> (a | b) <= \result;
 	ensures uor_half64: opsz == 64 && v1 <= 0x7FFFFFFFFFFFFFFF &&
 		v2 <= 0x7FFFFFFFFFFFFFFF ==> \result <= 0x7FFFFFFFFFFFFFFF;
+	// OP-OPTIMALITY: value-loose by construction (Category B). \result =
+	// umax_bits(v1) | umax_bits(v2), the bit-FILL OR bound behind eval_or/eval_xor;
+	// optimal only WITHIN the bit-abstraction (via umax_bits' `optimal`), not as a
+	// value bound -- optimality_notes.md §6d/§6h.
 */
 uint64_t eval_uor_max(uint64_t v1, uint64_t v2, size_t opsz)
 {

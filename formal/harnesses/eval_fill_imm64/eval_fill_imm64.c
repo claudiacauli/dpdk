@@ -33,6 +33,19 @@ static int64_t fi_sext(uint64_t p, uint64_t mask)
 	ensures sord:       signed_range_ordering(rv);
 	ensures uwidth:     unsigned_range_within_width(rv, mask);
 	ensures swidth:     signed_range_within_width(rv, mask);
+
+	// SELF-OPTIMALITY: TRIVIAL (Category C) but stated as a first-class clause
+	// anyway. const_u/const_s pin a SINGLE-POINT register, so all four range
+	// endpoints are the same one value and each is trivially attained by it.
+	// There is no OP-optimality clause because there is no input register to be
+	// optimal WITH RESPECT TO -- this is a nullary transformer, so output
+	// self-optimality is the whole content of "optimal" here.
+	//
+	// Worth having as a real goal rather than a comment: this is the FREE BASE
+	// CASE for any future self-optimality-PRESERVATION invariant
+	// (optimality_notes.md §6i, §7 #2) -- the induction has to start somewhere,
+	// and this is the somewhere.
+	ensures selfopt:    self_optimal(*rv, mask);
 */
 void
 eval_fill_imm64(struct bpf_reg_val *rv, uint64_t mask, uint64_t val)

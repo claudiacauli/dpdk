@@ -24,6 +24,15 @@
 	ensures uwidth:     unsigned_range_within_width(rv, mask);
 	ensures swidth:     signed_range_within_width(rv, mask);
 	ensures type_ok:    is_scalar_or_pointer(rv->v.type);
+
+	// OP-OPTIMALITY: N/A -- a Top-producer (BOTH tracks to full width, plus stamps
+	// type=RAW/mask); no endpoint-attainment notion. The full-width-BOTH output IS
+	// self-optimal. optimality_notes.md §6h.
+	//
+	// SELF-OPTIMALITY: relayed from eval_max_bound's own selfopt clause -- the
+	// type/mask stamps that follow touch neither track, so the reduced-element
+	// property established there survives to this postcondition unchanged.
+	ensures selfopt:    self_optimal(*rv, mask);
 */
 void eval_fill_max_bound(struct bpf_reg_val *rv, uint64_t mask)
 {

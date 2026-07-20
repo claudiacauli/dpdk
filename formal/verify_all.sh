@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-# Usage: verify_all.sh [--fixes|--no-fixes] [--only <function>]
+# Usage: verify_all.sh [--fixes|--no-fixes] [--only <function>] [--props <list>]
 #
 # --no-fixes (the DEFAULT) verifies the faithful port of the upstream
 # code: the goals covered by FIX_* gates are then EXPECTED to fail —
@@ -11,20 +11,28 @@
 # --only eval_lsh runs just that harness's block (the lemma pass still
 # runs: lemmas are assumed everywhere, so they must be proved even in a
 # single-method run).
+#
+# --props uopt,sopt runs ONLY those named ensures, across every harness
+# that has them; harnesses with none are skipped silently. Property
+# filtering also skips the side-goals, isolate, helper and lemma passes,
+# so it is a fast slice, NOT a certifying run -- the stones a property
+# leans on are not re-proved. Use a bare run for certification.
 FIXES=
 ONLY=
+PROPS=
 MODE=--no-fixes
 while [ $# -gt 0 ]; do
 	case "$1" in
 	--fixes)    FIXES=-cpp-extra-args=-DALL_FIXES; MODE=--fixes ;;
 	--no-fixes) FIXES=; MODE=--no-fixes ;;
 	--only)     shift; ONLY=${1:?--only needs a function name} ;;
-	*) echo "usage: $0 [--fixes|--no-fixes] [--only <function>]" >&2
+	--props)    shift; PROPS=$(printf '%s' "${1:?--props needs a list}" | tr ',' ' ') ;;
+	*) echo "usage: $0 [--fixes|--no-fixes] [--only <function>] [--props <list>]" >&2
 	   exit 2 ;;
 	esac
 	shift
 done
-echo "mode: $MODE${ONLY:+ (only $ONLY)}"
+echo "mode: $MODE${ONLY:+ (only $ONLY)}${PROPS:+ (props:$(printf ' %s' $PROPS))}"
 ONLY_MATCHED=
 
 FAILED=0
@@ -114,8 +122,10 @@ wp_pass() {
 verify() {
 	local split_props=${SPLIT_PROPS-}
 	local isolate_props=${ISOLATE_PROPS-}
+	local skip_props=${SKIP_PROPS-}
 	SPLIT_PROPS=   # env-prefix assignments to functions persist in bash
 	ISOLATE_PROPS=
+	SKIP_PROPS=
 	local fct= impl= prev= f p props neg= extra
 	for f in "$@"; do
 		[ "$prev" = "-wp-fct" ] && fct=$f
@@ -130,6 +140,26 @@ verify() {
 	done
 	props=$(grep -Eo 'ensures[[:space:]]+[A-Za-z_][A-Za-z_0-9]*[[:space:]]*:' "$impl" |
 		sed -E 's/ensures[[:space:]]+//; s/[[:space:]]*:$//')
+	# SKIP_PROPS="uopt sopt": ensures that are compile-gated OUT of this
+	# cell's build (e.g. PROVE_OPTIMALITY). The grep above reads the raw
+	# file, so without this the pass would run -wp-prop on a clause the
+	# preprocessor removed and report a spurious FAILED (0/0). Such props
+	# are proved by their own gated cell below instead.
+	if [ -n "$skip_props" ]; then
+		local kept=
+		for p in $props; do
+			case " $skip_props " in *" $p "*) ;; *) kept="$kept $p" ;; esac
+		done
+		props=$kept
+	fi
+	if [ -n "$PROPS" ]; then
+		local keep=
+		for p in $props; do
+			case " $PROPS " in *" $p "*) keep="$keep $p" ;; esac
+		done
+		props=$keep
+		[ -z "$props" ] && return 0
+	fi
 	for p in $props; do
 		extra=
 		case " $split_props " in *" $p "*) extra=-wp-split ;; esac
@@ -139,6 +169,7 @@ verify() {
 	# ISOLATE_PROPS="stone1 @requires": cliff stones (and categories)
 	# that flicker inside the batched side-goals run get their own
 	# isolated passes (the goal-batching instability remedy).
+	[ -n "$PROPS" ] && return 0
 	for p in $isolate_props; do
 		wp_pass "$fct" "$p" "$@" -wp-prop "$p"
 		neg="$neg${neg:+,}-$p"
@@ -153,15 +184,40 @@ verify() {
 # per-block helper lists vary with $FIXES. Respects --only.
 helpers() { # <harness> <wp args...>
 	local fct=$1; shift
+	[ -n "$PROPS" ] && return 0
 	[ -n "$ONLY" ] && [ "$fct" != "$ONLY" ] && return 0
 	wp_pass "$fct" "helpers" "$@"
+}
+
+# want <fct> <prop>...: gate for cells outside verify()'s discovery
+# (the PROVE_OPTIMALITY cells). True when --only/--props do not exclude
+# them: --only must match the harness, and if --props filters, at least
+# one of the cell's props must be requested.
+want() {
+	local fct=$1 p; shift
+	[ -n "$ONLY" ] && [ "$fct" != "$ONLY" ] && return 1
+	[ -z "$PROPS" ] && return 0
+	for p; do case " $PROPS " in *" $p "*) return 0 ;; esac; done
+	return 1
 }
 
 # ACSL lemmas (common/axioms.h) are hypotheses in every PO but are goals
 # in none of the -wp-fct passes below: discharge them once, up front.
 # Any single TU that includes specs.h works; use the lightest.
-wp_pass "specs.h" "lemmas" -wp-timeout 20 -wp-prop @lemma \
+[ -n "$PROPS" ] || wp_pass "specs.h" "lemmas" -wp-timeout 20 -wp-prop @lemma \
 	harnesses/eval_umax_bound/eval_umax_bound.c
+
+# common/axioms_shift_opt.h (len2mask_shift_s) and common/lemmas_canon.h
+# (to_signed_canon_rt) are TU-scoped, so their lemmas are out of scope of
+# the pass above. eval_rsh pulls in the first, eval_arsh the second;
+# compiling both together puts every one of them in scope of a single
+# pass. eval_lsh and eval_neg also include lemmas_canon.h (2026-07-20,
+# ssound footing) — a lemma PO depends only on the logic definitions, so
+# proving it once here covers every including TU. The axioms carry no
+# goals here — only the lemmas do.
+[ -n "$PROPS" ] || wp_pass "shift-opt" "lemmas" -wp-timeout 60 -wp-prop @lemma \
+	harnesses/eval_rsh/eval_rsh.c \
+	harnesses/eval_arsh/eval_arsh.c
 
 verify -wp-timeout 20 \
 	-wp-fct eval_umax_bound \
@@ -212,9 +268,28 @@ verify $FIXES -wp-timeout 60 \
 # never closes even at 600s uncontended), while ssound and the side-goals
 # batch still need splitting — the unsplit side-goals flip the uand_max
 # requires-instances past the timeout.
+# uopt/sopt + their witness stones are compile-gated (PROVE_OPTIMALITY)
+# out of this soundness build: the stones' ground land nodes on the
+# u-endpoints seed the land-axiom family inside the usound/ssound
+# searches (diagnosed 2026-07-20). Their own cell follows.
+SKIP_PROPS="uopt sopt" \
 SPLIT_PROPS="ssound" \
 verify $FIXES -wp-timeout 600 \
 	-wp-fct eval_and \
+	harnesses/eval_and/eval_and_main.c \
+	harnesses/eval_and/eval_and.c \
+	harnesses/eval_uand_max/eval_uand_max.c \
+	harnesses/eval_smax_bound/eval_smax_bound.c
+
+# eval_and optimality cell: the gated build. One pass proves uopt/sopt
+# and every witness stone (a stone assumes only the ones before it, so
+# listing them all keeps every assumed fact a proved one). Fixed
+# semantics only — the optimality clauses were derived under ALL_FIXES.
+[ -n "$FIXES" ] && want eval_and uopt sopt &&
+wp_pass "eval_and" "optimality" \
+	"-cpp-extra-args=-DALL_FIXES -DPROVE_OPTIMALITY" -wp-timeout 600 \
+	-wp-fct eval_and \
+	-wp-prop="uopt,sopt,uopt_idem_max,uopt_idem_min,sopt_half_max,sopt_half_min,sopt_rt_max,sopt_rt_min,sopt_idem_max,sopt_idem_min" \
 	harnesses/eval_and/eval_and_main.c \
 	harnesses/eval_and/eval_and.c \
 	harnesses/eval_uand_max/eval_uand_max.c \
@@ -251,12 +326,17 @@ verify $FIXES -wp-timeout 600 \
 # (the half_mask_* Qed lemmas plus the mul monotonicity / bound / wrap
 # axioms) is included ONLY by eval_mul.c, so its lemmas need their own
 # @lemma pass here: the top-level pass runs over a TU that never sees them.
-# 450s not 60: mul_ssound_overflow (the to_signed-strip + framing lemma) is a
-# slow nonlinear goal — ~76s on the reference box, more on a slower one — and a
-# lemma is proved ONCE, so a generous ceiling costs nothing and keeps it from
-# flickering red (a red lemma would silently prop up ssound). The other 16
-# lemmas prove in seconds.
-wp_pass "axioms_mul.h" "lemmas" -wp-timeout 450 -wp-prop @lemma \
+# 900s not 60: mul_ssound_overflow (the to_signed-strip + framing lemma) is a
+# slow nonlinear goal — ~76s on the reference box, 454s+ on this one (it
+# breached the previous 450s ceiling, 2026-07-20) — and a lemma is proved
+# ONCE, so a generous ceiling costs nothing and keeps it from flickering
+# red (a red lemma would silently prop up ssound). The other 16 lemmas
+# prove in seconds.
+# TU-scoped (unlike specs.h's global lemmas): eval_mul.c is the only TU that
+# includes axioms_mul.h, so a --only run of any other function need not prove
+# these — skip them unless the whole suite or eval_mul itself is being run.
+{ [ -z "$ONLY" ] || [ "$ONLY" = eval_mul ]; } &&
+[ -n "$PROPS" ] || wp_pass "axioms_mul.h" "lemmas" -wp-timeout 900 -wp-prop @lemma \
 	harnesses/eval_mul/eval_mul.c \
 	harnesses/eval_umax_bound/eval_umax_bound.c \
 	harnesses/eval_smax_bound/eval_smax_bound.c
@@ -267,6 +347,12 @@ wp_pass "axioms_mul.h" "lemmas" -wp-timeout 450 -wp-prop @lemma \
 # e-matching search — 300s is ample (whole-property wall ~4m, no single part
 # over ~2m). Without those lemmas the hardest overflow x fallback part did
 # not close even at 1800s.
+# uopt/sopt + their ~10 witness stones are compile-gated
+# (PROVE_OPTIMALITY) out of this soundness build: the stones' nonlinear
+# product e-nodes are assumed into every usound/ssound split part and
+# push the tail past the ceiling (the §6l hazard, diagnosed 2026-07-20).
+# Their own cell follows the helpers.
+SKIP_PROPS="uopt sopt" \
 SPLIT_PROPS="usound ssound" \
 verify $FIXES -wp-timeout 300 \
 	-wp-fct eval_mul \
@@ -277,6 +363,21 @@ verify $FIXES -wp-timeout 300 \
 
 if [ -n "$FIXES" ]; then MULH=mul_umask,mul_sext,mul_sext2; else MULH=mul_umask; fi
 helpers eval_mul $FIXES -wp-timeout 60 -wp-fct $MULH \
+	harnesses/eval_mul/eval_mul_main.c \
+	harnesses/eval_mul/eval_mul.c \
+	harnesses/eval_umax_bound/eval_umax_bound.c \
+	harnesses/eval_smax_bound/eval_smax_bound.c
+
+# eval_mul optimality cell: the gated build (see the soundness cell's
+# note). 900s not 300: uopt is a monolithic nonlinear search that spun
+# past 300s on this machine while its twin sopt closes in ~80s — the
+# controlled 77/77 figure used a higher ceiling, and a generous one
+# costs nothing when the goals prove.
+[ -n "$FIXES" ] && want eval_mul uopt sopt &&
+wp_pass "eval_mul" "optimality" \
+	"-cpp-extra-args=-DALL_FIXES -DPROVE_OPTIMALITY" -wp-timeout 900 \
+	-wp-fct eval_mul \
+	-wp-prop="uopt,sopt,uopt_wit_umax,uopt_wit_umin,uopt_sum_umax,uopt_sum_umin,sopt_wit_smax,sopt_wit_smin,sopt_pat_id,sopt_sum_smax32,sopt_sum_smax64,sopt_sum_smin" \
 	harnesses/eval_mul/eval_mul_main.c \
 	harnesses/eval_mul/eval_mul.c \
 	harnesses/eval_umax_bound/eval_umax_bound.c \
@@ -399,15 +500,19 @@ verify $FIXES -wp-timeout 600 -wp-split \
 # composes every operator implementation, so all scoped axiom families
 # are in scope of every PO; the vld_*/wid_*/ord_d stones hand the
 # operator requires-instances their facts directly.
-# 1200s: the two heaviest side-goal stones (vld_s32 ~707s, sx_vld64 ~578s
-# uncontended — range_validity over the branch-merged rs heap) need the
+# 1200s: the two heaviest side-goal stones (sx_vld64 ~578s uncontended,
+# and the sign-extension stones over the branch-merged rs heap) need the
 # headroom, like eval_arsh's usound.
+# (vld_s32/vld_s64/vld_d were removed here 2026-07-19: those range_validity
+# stones were FALSE and are DELETED from eval_alu.c; source ordering now
+# comes from ord_s2/ord_d2. Leaving the name in this isolate list makes the
+# pass match 0 goals and report a spurious FAILED (0/0).)
 # -no-warn-unaligned-pointer: the evst double indirection makes the
 # kernel emit an \aligned alarm, but WP does not implement \aligned at
 # all ("not yet implemented" — hypotheses dropped, goal degenerates), so
 # the alarm is unprovable noise in a WP pipeline; alignment holds for any
 # real allocation and is cross-checked by the BMC memsafety dimension.
-ISOLATE_PROPS="sx_vld32 sx_vld64 vld_s32 ord_dx ord_dk @requires" \
+ISOLATE_PROPS="sx_vld32 sx_vld64 ord_dx ord_dk @requires" \
 verify $FIXES -wp-timeout 1200 -no-warn-unaligned-pointer \
 	-wp-fct eval_alu \
 	harnesses/eval_alu/eval_alu_main.c \

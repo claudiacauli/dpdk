@@ -55,6 +55,36 @@ static int64_t dm_sext(uint64_t p, uint64_t msk)
 		eval_divmod_unsigned_soundness(op, \old(*rd), \old(*rs), *rd, msk);
 	ensures ssound:     \result == \null ==>
 		eval_divmod_signed_soundness(op, \old(*rd), \old(*rs), *rd, msk);
+
+	// OP-OPTIMALITY (divmod-optimal). Soundness above is UNCONDITIONAL; this is
+	// op-optimal on the CONSTANT-OPERAND branch, where both endpoints are computed
+	// exactly and each witnesses itself via self_optimal.
+	//
+	// THE RANGE BRANCH IS NOT OP-OPTIMAL, and an earlier draft of this contract
+	// got that wrong. It guarded on `op == BPF_MOD || rs.u.min == 1`, on the
+	// reasoning that MOD's u.max = min(rd.u.max, rs.u.max - 1) is the tight
+	// remainder bound and only DIV is loose. Both halves are refuted by exhaustive
+	// small-domain enumeration (scratch check over rd,rs in [0,20]):
+	//   - MOD, rd = [1,1], rs = [2,3]: code gives [0,1], true image is [1,1].
+	//   - DIV with rs.u.min == 1, rd = [1,2], rs = [1,1]: code [0,2], true [1,2].
+	// 12015 MOD cases and 1520 rs.u.min==1 DIV cases are loose in that domain
+	// alone. The dominant cause is structural: the range branch sets u.min = 0
+	// UNCONDITIONALLY, but 0 is in the image only when some representable pair
+	// divides exactly (MOD) or has x < y (DIV) -- usually neither. MOD's u.max is
+	// independently loose too (rd = [10,12], rs = [7,7]: bound 6, true max 5).
+	//
+	// So the range branch needs a genuine precision fix before it can carry an
+	// op-optimality clause -- a tight u.min, and for DIV the tight u.max
+	// rd.u.max / rs.u.min. That is its own project (optimality_notes.md); stating a
+	// guard here that merely dodges the counterexamples would be fiction.
+	ensures uopt: \result == \null &&
+		self_optimal(\old(*rd), msk) && self_optimal(\old(*rs), msk) &&
+		\old(rd->u.min) == \old(rd->u.max) && \old(rs->u.min) == \old(rs->u.max)
+			==> eval_divmod_unsigned_optimal(op, \old(*rd), \old(*rs), *rd, msk);
+	ensures sopt: \result == \null &&
+		self_optimal(\old(*rd), msk) && self_optimal(\old(*rs), msk) &&
+		\old(rd->u.min) == \old(rd->u.max) && \old(rs->u.min) == \old(rs->u.max)
+			==> eval_divmod_signed_optimal(op, \old(*rd), \old(*rs), *rd, msk);
 */
 const char *
 eval_divmod(uint32_t op, struct bpf_reg_val *rd, struct bpf_reg_val *rs,
