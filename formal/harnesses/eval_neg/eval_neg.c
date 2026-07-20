@@ -1,16 +1,14 @@
 #include "eval_neg.h"
 /*
- * to_signed_canon_rt became load-bearing for ssound when the 2026-07-19
- * relaxation replaced `requires range_validity` with `requires
- * range_ordering`: the old (caller-unestablishable) precondition
- * supplied range_agreement's ground u.* == s.* & mask equations, which
- * indirectly carried the signed endpoints' round-trip. With the honest
- * precondition the PO derives every signed output endpoint as
- * to_signed(((uint64_t)w) & msk, msk) for canonical w, and without this
- * lemma the solver must re-derive the collapse through to_signed's ite
- * over a SYMBOLIC mask — it spins (ssound 0/1, 2026-07-20).
+ * NOTE (2026-07-20): do NOT add common/lemmas_canon.h here. It was
+ * tried as the ssound fix (the PO derives every signed output endpoint
+ * as to_signed(((uint64_t)w) & msk, msk), which is exactly
+ * to_signed_canon_rt's shape) and it REGRESSED usound — green in 10s
+ * without the include, 0/1 at 300s with it — while ssound stayed red.
+ * A TU-wide lemma is too blunt for this TU; the round-trip fact has to
+ * arrive as a narrow in-body stone with the exact goal term shape.
+ * ssound remains the one open eval_neg goal.
  */
-#include "../../common/lemmas_canon.h"
 
 #ifdef FIX_NEG_SIGNED_32
 /*

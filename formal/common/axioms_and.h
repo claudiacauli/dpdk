@@ -95,6 +95,22 @@ axiomatic LandCanon {
 		(m == 0xFFFFFFFF || m == 0xFFFFFFFFFFFFFFFF) &&
 		-(m >> 1) - 1 <= v <= (m >> 1) && 0 <= p <= m
 		==> to_signed(v & p, m) == (v & to_signed(p, m));
+	// Decode commutes with AND of TWO patterns (the both-pattern form of
+	// to_signed_land_pat above; the AND analog of to_signed_lor_both /
+	// to_signed_lxor_both, which fixed or/xor the same day). Needed by
+	// ssound's signed-CONSTANT parts {01,24,47}: there the bin_witness
+	// decode is pinned to a possibly NEGATIVE constant whose pattern
+	// exceeds m >> 1 — outside the canonical window, so
+	// to_signed_land_pat never fires and nothing matches
+	// to_signed(v & y, msk). No outer & m: the AND of two patterns is
+	// already <= m. Sign-extension replicates bit w-1 upward and AND is
+	// bitwise, so AND of sign-extensions == sign-extension of the AND.
+	axiom to_signed_land_both:
+		\forall integer p, q, m;
+		(m == 0xFFFFFFFF || m == 0xFFFFFFFFFFFFFFFF) &&
+		0 <= p <= m && 0 <= q <= m
+		==> to_signed(p & q, m)
+			== (to_signed(p, m) & to_signed(q, m));
 	// Encode/decode round-trip with SYMBOLIC mask (the constant-mask
 	// to_signed_land_id_* forms above cannot fire on goal terms whose
 	// mask is the symbolic msk): for canonical w, ANDing by the mask

@@ -423,6 +423,23 @@ static void land_canon(void)
 			assert(lhs == ((__int128)v & dec_p));
 		}
 	}
+	/* to_signed_land_both: patterns p, q <= m ==>
+	   to_signed(p & q, m) == to_signed(p, m) & to_signed(q, m),
+	   both masks (no outer & m: p & q <= m already) */
+	{
+		uint64_t p64 = nondet_u64(), q64 = nondet_u64();
+		uint64_t ms[2] = { 0xFFFFFFFFULL, 0xFFFFFFFFFFFFFFFFULL };
+		int k = nondet_int() ? 1 : 0;
+		__int128 m = ms[k], half = m >> 1, p = p64, q = q64;
+		if (p <= m && q <= m) {
+			__int128 land_pq = p & q;
+			__int128 lhs = (land_pq <= half) ? land_pq
+							 : land_pq - (m + 1);
+			__int128 dec_p = (p <= half) ? p : p - (m + 1);
+			__int128 dec_q = (q <= half) ? q : q - (m + 1);
+			assert(lhs == (dec_p & dec_q));
+		}
+	}
 }
 
 /* ---------------- LorBounds (common/axioms_or.h) ----------------------- */
@@ -627,6 +644,34 @@ static void mul_bounds(void)
 	   CBMC's SAT bit-blasting (does not terminate in practice) — ESBMC's
 	   SMT bit-vector backend discharges it in ~2s, so validate this file
 	   with ESBMC. */
+	/* mul_sext_congr: patterns v,w <= m with canonical decodes c,e ==>
+	   to_signed((v*w)&m, m) == to_signed((c*e)&m, m). A pattern and its
+	   sign-extension are congruent mod 2^w, so the masked products
+	   agree; decodes computed per the to_signed definition, products in
+	   __int128 (signed for c*e). 64-bit multiplier: ESBMC's SMT
+	   bit-vector backend only, like mul_mask_wrap below. */
+	{
+		uint64_t v64 = nondet_u64(), w64 = nondet_u64();
+		uint64_t ms[2] = { 0xFFFFFFFFULL, 0xFFFFFFFFFFFFFFFFULL };
+		int k = nondet_int() ? 1 : 0;
+		unsigned __int128 m = (unsigned __int128)ms[k];
+		unsigned __int128 half = m >> 1, v = v64, w = w64;
+		if (v <= m && w <= m) {
+			__int128 c = (v <= half) ? (__int128)v
+						 : (__int128)v - ((__int128)m + 1);
+			__int128 e = (w <= half) ? (__int128)w
+						 : (__int128)w - ((__int128)m + 1);
+			unsigned __int128 pv = ((unsigned __int128)v *
+						(unsigned __int128)w) & m;
+			unsigned __int128 pc = ((unsigned __int128)((__int128)c *
+						(__int128)e)) & m;
+			__int128 dv = (pv <= half) ? (__int128)pv
+						   : (__int128)pv - ((__int128)m + 1);
+			__int128 dc = (pc <= half) ? (__int128)pc
+						   : (__int128)pc - ((__int128)m + 1);
+			assert(dv == dc);
+		}
+	}
 	{
 		uint64_t a = nondet_u64(), b = nondet_u64();
 		uint64_t ms[2] = { 0xFFFFFFFFULL, 0xFFFFFFFFFFFFFFFFULL };

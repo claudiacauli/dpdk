@@ -1,14 +1,14 @@
 #include "eval_lsh.h"
 #include "../../common/axioms_shift_opt.h"
 /*
- * to_signed_canon_rt is load-bearing for ssound here, exactly as in
- * eval_rsh (see the DO-NOT-REMOVE note there): lsh's ssound conclusion
- * to_signed((((uint64_t)v & msk) << y) & msk, msk) is precisely the
- * lemma's round-trip shape (the shifted value is canonical by the
- * in-branch swidth stone). lsh was the ONLY shift TU missing this
- * include — ssound parts 06/11 timed out without it (2026-07-20).
+ * NOT common/lemmas_canon.h: that header's to_signed_canon_rt was
+ * tried here (2026-07-20) on the theory that lsh's ssound conclusion
+ * is its round-trip shape — the goal dump refuted it (the lsl sits
+ * between the two lands, so the trigger can never unify; nothing
+ * changed with the include). The lsh-shaped lemma below is the one
+ * whose application term matches the actual PO.
  */
-#include "../../common/lemmas_canon.h"
+#include "lemmas_canon_lsh.h"
 #include "../eval_max_bound/eval_max_bound.h"
 #include "../eval_umax_bound/eval_umax_bound.h"
 #include "../eval_smax_bound/eval_smax_bound.h"
@@ -87,6 +87,19 @@ void eval_lsh(struct bpf_reg_val *rd, const struct bpf_reg_val *rs, size_t opsz,
 		/*@ assert in_ord_d: rd->u.min <= rd->u.max; */
 		/*@ assert in_ord_s: rs->u.min <= rs->u.max; */
 		/*@ assert min_fits: rd->u.min <= RTE_LEN2MASK(opsz - rs->u.min, uint64_t); */
+		/*
+		 * usound stones (2026-07-20, dump-diagnosed): the no-overflow
+		 * guard's width fact exists only in the C-emitted size_t-wrap
+		 * shape, while lsl_width_32/64 / len2mask_shift_u trigger on
+		 * the ACSL LEN2MASK node — nothing links the two e-nodes, and
+		 * usound parts 07/10/11 spin inventing the strip. max_fits
+		 * transports the guard onto the ACSL node (min_fits' twin,
+		 * same spot, needs strictly less); max_shift_fits then follows
+		 * by lsl_width firing on it, handing the big POs the ground
+		 * fact `lsl(u.max, q.max) <= msk` they were missing.
+		 */
+		/*@ assert max_fits: rd->u.max <= RTE_LEN2MASK(opsz - rs->u.max, uint64_t); */
+		/*@ assert max_shift_fits: (rd->u.max << rs->u.max) <= msk; */
 		rd->u.max <<= rs->u.max;
 		rd->u.min <<= rs->u.min;
 		/*@ assert umin_stone: rd->u.min <= msk; */

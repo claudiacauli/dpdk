@@ -63,6 +63,29 @@ axiomatic MulBounds {
 		\forall integer a, b, m;
 		(m == 0xFFFFFFFF || m == 0xFFFFFFFFFFFFFFFF)
 		==> (((uint64_t)((uint64_t)a * (uint64_t)b)) & m) == ((a * b) & m);
+	// Low-w bits of a product depend only on the operands' low-w bits:
+	// a w-bit pattern and its sign-extended canonical value are
+	// congruent mod 2^w, so their products agree under the mask.
+	// Gated to the @lemma pass (PROVE_MUL_LEMMAS): this axiom exists
+	// only to PROVE mul_ssound_const, and the trigger design (fire only
+	// on the co-occurrence of both conclusion terms) did NOT survive
+	// contact with the solvers — with the axiom in the main TU, swidth
+	// regressed 1m-green -> 300s-spin and the optimality cell flipped
+	// which goals close (2026-07-20). The soundness passes only need
+	// the LEMMA assumed, so the axiom stays out of their TU entirely;
+	// the driver's axioms_mul lemma pass compiles with
+	// -DPROVE_MUL_LEMMAS and proves the lemma with the axiom in scope.
+	// ESBMC validation cell in validate_specs_axioms.c (server: the
+	// 64-bit multiplier is intractable for this Mac's ESBMC; local
+	// evidence = exhaustive w=4/8/12 brute force, zero violations).
+#ifdef PROVE_MUL_LEMMAS
+	axiom mul_sext_congr:
+		\forall integer v, w, c, e, m;
+		(m == 0xFFFFFFFF || m == 0xFFFFFFFFFFFFFFFF) &&
+		0 <= v <= m && 0 <= w <= m &&
+		to_signed(v, m) == c && to_signed(w, m) == e
+		==> to_signed((v * w) & m, m) == to_signed((c * e) & m, m);
+#endif
 }
 */
 

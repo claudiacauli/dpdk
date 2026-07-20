@@ -207,17 +207,19 @@ want() {
 [ -n "$PROPS" ] || wp_pass "specs.h" "lemmas" -wp-timeout 20 -wp-prop @lemma \
 	harnesses/eval_umax_bound/eval_umax_bound.c
 
-# common/axioms_shift_opt.h (len2mask_shift_s) and common/lemmas_canon.h
-# (to_signed_canon_rt) are TU-scoped, so their lemmas are out of scope of
-# the pass above. eval_rsh pulls in the first, eval_arsh the second;
-# compiling both together puts every one of them in scope of a single
-# pass. eval_lsh and eval_neg also include lemmas_canon.h (2026-07-20,
-# ssound footing) — a lemma PO depends only on the logic definitions, so
-# proving it once here covers every including TU. The axioms carry no
-# goals here — only the lemmas do.
+# common/axioms_shift_opt.h (len2mask_shift_s), common/lemmas_canon.h
+# (to_signed_canon_rt) and harnesses/eval_lsh/lemmas_canon_lsh.h
+# (to_signed_canon_shift_rt, the lsh-shaped round-trip) are TU-scoped,
+# so their lemmas are out of scope of the pass above. eval_rsh pulls in
+# the first, eval_arsh the second, eval_lsh the third; compiling all
+# three together puts every one of them in scope of a single pass. A
+# lemma PO depends only on the logic definitions, so proving each once
+# here covers every including TU. The axioms carry no goals here — only
+# the lemmas do.
 [ -n "$PROPS" ] || wp_pass "shift-opt" "lemmas" -wp-timeout 60 -wp-prop @lemma \
 	harnesses/eval_rsh/eval_rsh.c \
-	harnesses/eval_arsh/eval_arsh.c
+	harnesses/eval_arsh/eval_arsh.c \
+	harnesses/eval_lsh/eval_lsh.c
 
 verify -wp-timeout 20 \
 	-wp-fct eval_umax_bound \
@@ -335,11 +337,19 @@ verify $FIXES -wp-timeout 600 \
 # TU-scoped (unlike specs.h's global lemmas): eval_mul.c is the only TU that
 # includes axioms_mul.h, so a --only run of any other function need not prove
 # these — skip them unless the whole suite or eval_mul itself is being run.
-{ [ -z "$ONLY" ] || [ "$ONLY" = eval_mul ]; } &&
-[ -n "$PROPS" ] || wp_pass "axioms_mul.h" "lemmas" -wp-timeout 900 -wp-prop @lemma \
+# (if/fi, not `A && B || C`: the &&/|| chain parses as `(A && B) || C`,
+# which ran this 15-minute pass in EVERY --only block — and its red
+# lemma poisoned the exit code of otherwise all-green runs, 2026-07-20.)
+if { [ -z "$ONLY" ] || [ "$ONLY" = eval_mul ]; } && [ -z "$PROPS" ]; then
+# -DPROVE_MUL_LEMMAS: mul_sext_congr is in scope ONLY here — it exists
+# to prove mul_ssound_const and it perturbs swidth/optimality when left
+# in the soundness TU (see axioms_mul.h).
+wp_pass "axioms_mul.h" "lemmas" -wp-timeout 900 -wp-prop @lemma \
+	-cpp-extra-args=-DPROVE_MUL_LEMMAS \
 	harnesses/eval_mul/eval_mul.c \
 	harnesses/eval_umax_bound/eval_umax_bound.c \
 	harnesses/eval_smax_bound/eval_smax_bound.c
+fi
 
 # The mul_usound_overflow / mul_ssound_overflow lemmas (eval_mul.h) state
 # each overflow branch's soundness against the folded predicate, so every
@@ -352,8 +362,12 @@ verify $FIXES -wp-timeout 600 \
 # product e-nodes are assumed into every usound/ssound split part and
 # push the tail past the ceiling (the §6l hazard, diagnosed 2026-07-20).
 # Their own cell follows the helpers.
+# swidth in SPLIT_PROPS (2026-07-20): it is a CLIFF goal at margin zero
+# — monolithic it proved in ~1m until the day's additions (each
+# individually innocent by bisection) tipped it to a 900s spin; split
+# per opsz it proves 77/77 fast regardless of context.
 SKIP_PROPS="uopt sopt" \
-SPLIT_PROPS="usound ssound" \
+SPLIT_PROPS="usound ssound swidth" \
 verify $FIXES -wp-timeout 300 \
 	-wp-fct eval_mul \
 	harnesses/eval_mul/eval_mul_main.c \
@@ -403,8 +417,11 @@ verify $FIXES -wp-timeout 300 \
 # eval_neg: pattern negation with cross-track limit exchange. The spec's
 # neg_pat is LINEAR (x==0 ? 0 : msk+1-x), so no operator axioms are needed
 # at all — the shared land/wrap set plus the neg_sext helper contract carry
-# every goal monolithic in seconds.
-verify $FIXES -wp-timeout 300 \
+# almost every goal monolithic in seconds. 1200s not 300: ssound is the
+# one slow search (~15m wall on this machine, proves 1/1 isolated at
+# 1200s, 2026-07-20 — it is a ceiling case, not a missing lemma; a
+# TU-wide canon lemma tried instead REGRESSED usound, see eval_neg.c).
+verify $FIXES -wp-timeout 1200 \
 	-wp-fct eval_neg \
 	harnesses/eval_neg/eval_neg_main.c \
 	harnesses/eval_neg/eval_neg.c
@@ -477,7 +494,11 @@ verify $FIXES -wp-timeout 3000 \
 	harnesses/eval_smax_bound/eval_smax_bound.c \
 	harnesses/eval_umax_bound/eval_umax_bound.c
 
-verify $FIXES -wp-timeout 600 -wp-split \
+# 1800s not 600 (2026-07-20): usound parts 10/11 and ssound parts 06/11
+# are red-SLOW true goals that resisted both a shaped lemma
+# (to_signed_canon_shift_rt, proved and in scope) and bridge stones —
+# the same goal family for which eval_arsh needed exactly this ceiling.
+verify $FIXES -wp-timeout 1800 -wp-split \
 	-wp-fct eval_lsh \
 	harnesses/eval_lsh/eval_lsh_main.c \
 	harnesses/eval_lsh/eval_lsh.c \

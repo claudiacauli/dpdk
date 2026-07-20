@@ -221,6 +221,17 @@ void eval_mul(struct bpf_reg_val *rd, const struct bpf_reg_val *rs, size_t opsz,
 		      (rd->s.max * rs->s.max) <= (msk >> 1); */
 		/*@ assert s_mono: (rd->s.min * rs->s.min) <= (rd->s.max * rs->s.max); */
 		rd->s.max *= rs->s.max;
+		/*
+		 * Frame stone for the second multiply's RTE overflow guard
+		 * (rte_signed_overflow_4 timed out 2026-07-20): the guard's
+		 * product e-node reads rs->s.min AFTER the s.max store, while
+		 * the s_nof/s_mono chain above is stated on the PRE read, and
+		 * the monolithic side-goal times out deriving the collapse
+		 * itself. rs is \separated from rd, so the read is unchanged.
+		 * Linear VC (select-over-store + separation), no product
+		 * e-nodes — cannot perturb the soundness splits.
+		 */
+		/*@ assert s_frame: rs->s.min == \at(rs->s.min, Pre); */
 		rd->s.min *= rs->s.min;
 	} else
 		eval_smax_bound(rd, msk);
