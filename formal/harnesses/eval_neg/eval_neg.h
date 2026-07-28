@@ -3,6 +3,7 @@
 
 #include "../../common/shared.h"
 #include "../../common/specs.h"
+#include "../../common/semantics.h"
 
 /*
  * BPF_NEG negates the register's w-bit pattern (BPF_NEG_ALU in
@@ -23,29 +24,13 @@
  * constrain the witness by both input tracks.
  */
 /*@
-logic integer neg_pat(integer x, integer msk) =
-	x == 0 ? 0 : msk + 1 - x;
-
-// neg_pat maps [0,msk] onto itself and is an INVOLUTION there. That is what
-// makes op-optimality provable for eval_neg at all: the witness for an output
-// endpoint e is not something to be searched for, it is FORCED to be neg_pat(e).
-//
-// DELIBERATELY NOT STATED AS LEMMAS HERE -- do not add them back. Quantified
-// lemmas of the form
-//     \forall x, m; 0 <= x <= m ==> neg_pat(neg_pat(x, m), m) == x
-// were tried and MEASURED: they take eval_neg's usound from 1/1 in 4.8s to a
-// TIMEOUT at 5m07s. The reason is that usound itself quantifies over neg_pat, so
-// such a lemma's trigger fires all over its proof obligation.
-//
-// They are also unnecessary. neg_pat is a DEFINED logic function (not
-// axiomatised), so WP unfolds it directly: the four GROUND instances stated as
-// stones in eval_neg.c (uopt_inv_*, sopt_inv_*) each prove 1/1 on their own, and
-// uopt/sopt prove 1024/1024 with no lemma in scope at all.
-//
-// General rule this instance illustrates: when a fact is only needed at
-// specific terms, state it as a GROUND STONE, not a quantified lemma. A lemma is
-// a hypothesis in every PO of the translation unit and can wreck a neighbouring
-// cliff goal.
+// neg_pat MOVED to common/semantics.h (2026-07-28), together with its
+// "do NOT state involution lemmas" rationale (measured: 4.8s -> 5m07s
+// timeout): it is part of the CONCRETE SEMANTICS of negation, so the
+// executor-agreement harness cites the same symbol. Image terms below
+// are SEM_NEG, whose expansion is the identical AST. The GROUND stones
+// in eval_neg.c (uopt_inv_*, sopt_inv_*) remain the way the involution
+// is supplied.
 
 predicate eval_neg_unsigned_soundness(struct bpf_reg_val od,
                                        struct bpf_reg_val nw,
@@ -53,7 +38,7 @@ predicate eval_neg_unsigned_soundness(struct bpf_reg_val od,
 	\forall integer x;
 		od.u.min <= x <= od.u.max &&
 		od.s.min <= to_signed(x, msk) <= od.s.max
-			==> nw.u.min <= neg_pat(x, msk) <= nw.u.max;
+			==> nw.u.min <= SEM_NEG(x, msk) <= nw.u.max;
 
 predicate eval_neg_signed_soundness(struct bpf_reg_val od,
                                      struct bpf_reg_val nw,
@@ -61,7 +46,7 @@ predicate eval_neg_signed_soundness(struct bpf_reg_val od,
 	\forall integer x;
 		od.u.min <= x <= od.u.max &&
 		od.s.min <= to_signed(x, msk) <= od.s.max
-			==> nw.s.min <= to_signed(neg_pat(x, msk), msk)
+			==> nw.s.min <= to_signed(SEM_NEG(x, msk), msk)
 			    <= nw.s.max;
 
 // OP-OPTIMALITY (here: neg-optimal). Soundness says the computed range
@@ -83,16 +68,16 @@ predicate eval_neg_signed_soundness(struct bpf_reg_val od,
 predicate eval_neg_unsigned_optimal(struct bpf_reg_val od,
                                     struct bpf_reg_val nw,
                                     uint64_t msk) =
-	(\exists integer x; un_witness(od, x, msk) && neg_pat(x, msk) == nw.u.max) &&
-	(\exists integer x; un_witness(od, x, msk) && neg_pat(x, msk) == nw.u.min);
+	(\exists integer x; un_witness(od, x, msk) && SEM_NEG(x, msk) == nw.u.max) &&
+	(\exists integer x; un_witness(od, x, msk) && SEM_NEG(x, msk) == nw.u.min);
 
 predicate eval_neg_signed_optimal(struct bpf_reg_val od,
                                   struct bpf_reg_val nw,
                                   uint64_t msk) =
 	(\exists integer x; un_witness(od, x, msk) &&
-		to_signed(neg_pat(x, msk), msk) == nw.s.max) &&
+		to_signed(SEM_NEG(x, msk), msk) == nw.s.max) &&
 	(\exists integer x; un_witness(od, x, msk) &&
-		to_signed(neg_pat(x, msk), msk) == nw.s.min);
+		to_signed(SEM_NEG(x, msk), msk) == nw.s.min);
 */
 
 void eval_neg(struct bpf_reg_val *rd, size_t opsz, uint64_t msk);

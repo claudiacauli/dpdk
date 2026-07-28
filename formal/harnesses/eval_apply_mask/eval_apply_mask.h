@@ -23,9 +23,14 @@ predicate eval_apply_mask_signed_soundness(struct bpf_reg_val od,
 
 // OP-OPTIMALITY (apply_mask-optimal). Each output endpoint is ATTAINED by a
 // representable input (per-track, mirroring the per-track soundness above).
-// PRELIMINARY (optimality_notes.md); op-optimal from a SELF-OPTIMAL input in
-// the non-straddle regime (64-bit mask = identity, or 32-bit range that fits);
-// a range straddling a 2^32 boundary widens u to [0,mask] and is loose.
+// PRELIMINARY (optimality_notes.md). Under FIX_APPLY_MASK_OPT the u track is
+// UNCONDITIONALLY optimal: a same-block range keeps its tight masked image
+// (each endpoint attained by its own preimage endpoint), and a straddling
+// range tops out to [0,mask] whose endpoints ARE attained -- the crossed
+// block boundary B gives 0 at B and mask at B-1 (single-track witnesses, so
+// the intersection caveat that blocks add/sub/neg does not apply). Without
+// the fix the old non-straddle guard stands; the s track keeps its
+// within-width guard either way (signed body not yet block-optimal).
 predicate eval_apply_mask_unsigned_optimal(struct bpf_reg_val od,
                                            struct bpf_reg_val nw, uint64_t msk) =
 	(\exists integer x; od.u.min <= x <= od.u.max && (x & msk) == nw.u.max) &&

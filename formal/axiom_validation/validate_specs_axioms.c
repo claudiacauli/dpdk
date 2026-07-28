@@ -81,6 +81,61 @@ static void land_wrap_family(void)
 	}
 }
 
+/* ---------------- ApplyMaskBlocks (axioms_apply_mask.h) ---------------- */
+
+static void apply_mask_block_family(void)
+{
+	/* land_split_u32: x == (x & ~m32) + (x & m32) */
+	{
+		uint64_t x = nondet_u64();
+		assert(x == (x & 0xFFFFFFFF00000000ULL) + (x & 0xFFFFFFFFULL));
+	}
+	/* land_block_mono_u32: x <= y ==> (x & ~m32) <= (y & ~m32) */
+	{
+		uint64_t x = nondet_u64(), y = nondet_u64();
+		if (x <= y)
+			assert((x & 0xFFFFFFFF00000000ULL) <=
+			       (y & 0xFFFFFFFF00000000ULL));
+	}
+	/* land_block_gap_u32: distinct blocks differ by at least 2^32 */
+	{
+		uint64_t x = nondet_u64(), y = nondet_u64();
+		if ((x & 0xFFFFFFFF00000000ULL) < (y & 0xFFFFFFFF00000000ULL))
+			assert((x & 0xFFFFFFFF00000000ULL) + 0x100000000ULL <=
+			       (y & 0xFFFFFFFF00000000ULL));
+	}
+	/* land_block_range_u32: same-block range keeps the block and orders lows */
+	{
+		uint64_t x = nondet_u64(), y = nondet_u64(), z = nondet_u64();
+		if (x <= z && z <= y &&
+		    (x & 0xFFFFFFFF00000000ULL) == (y & 0xFFFFFFFF00000000ULL)) {
+			assert((z & 0xFFFFFFFF00000000ULL) ==
+			       (x & 0xFFFFFFFF00000000ULL));
+			assert((x & 0xFFFFFFFFULL) <= (z & 0xFFFFFFFFULL));
+			assert((z & 0xFFFFFFFFULL) <= (y & 0xFFFFFFFFULL));
+		}
+	}
+	/* land_blockzero_u32: a block value has no low bits */
+	{
+		uint64_t x = nondet_u64();
+		assert(((x & 0xFFFFFFFF00000000ULL) & 0xFFFFFFFFULL) == 0);
+	}
+	/* block32_predtop: below a block boundary the lows are all ones */
+	{
+		uint64_t x = nondet_u64();
+		if (0x100000000ULL <= (x & 0xFFFFFFFF00000000ULL))
+			assert((((x & 0xFFFFFFFF00000000ULL) - 1) &
+				0xFFFFFFFFULL) == 0xFFFFFFFFULL);
+	}
+	/* land_block_div_u32: the block is the shifted Euclidean quotient —
+	 * bridges the contract's div-form block test to the body's &-form */
+	{
+		uint64_t x = nondet_u64();
+		assert((x & 0xFFFFFFFF00000000ULL) ==
+		       0x100000000ULL * (x / 0x100000000ULL));
+	}
+}
+
 /* ---------------- BpfArgPtrType ---------------------------------------- */
 
 static void bpf_arg_ptr_type(void)
@@ -442,6 +497,49 @@ static void land_canon(void)
 	}
 }
 
+/* --- to_signed_pattern_id / land_absorb_window (common/axioms_and.h) ---
+   ADDED 2026-07-28: the ARG-audit found these two axioms had NO validation
+   cell anywhere, while being in scope for and/or/xor/mul/uand_max and the
+   dispatcher. Both are now checked over their full stated domains. */
+
+static void land_and_canon_gaps(void)
+{
+	/* to_signed_pattern_id (axioms_and.h:118): a CANONICAL value w at
+	   width m round-trips through the pattern encoding, i.e.
+	   to_signed(w & m, m) == w. Both masks; w over the whole canonical
+	   window; the mask and the math-& are computed in __int128 so the
+	   negative-w case is the mathematical one the axiom states (ACSL &
+	   on a negative integer, not a C uint64 &). */
+	{
+		int64_t w = nondet_i64();
+		uint64_t ms[2] = { 0xFFFFFFFFULL, ALL1 };
+		int k = nondet_int() ? 1 : 0;
+		__int128 m = (__int128)ms[k];
+		__int128 half = m >> 1;
+		if (-half - 1 <= (__int128)w && (__int128)w <= half) {
+			unsigned __int128 pat = ((unsigned __int128)(__int128)w) &
+						(unsigned __int128)m;
+			__int128 dec = (pat <= (unsigned __int128)half)
+				? (__int128)pat
+				: (__int128)pat - (m + 1);
+			assert(dec == (__int128)w);
+		}
+	}
+	/* land_absorb_window (axioms_and.h:128): for v inside an all-ones
+	   window m, masking the OTHER operand by m first is a no-op:
+	   0 <= v <= m && (m & (m+1)) == 0 && 0 <= y ==> (v & y) == (v & (y & m)).
+	   y ranges over the full uint64 domain (the axiom allows any y >= 0;
+	   bits of y above the window cannot meet v). */
+	{
+		uint64_t v = nondet_u64(), y = nondet_u64();
+		uint64_t ms[2] = { 0xFFFFFFFFULL, ALL1 };
+		int k = nondet_int() ? 1 : 0;
+		uint64_t m = ms[k];
+		if (v <= m)
+			assert((v & y) == (v & (y & m)));
+	}
+}
+
 /* ---------------- LorBounds (common/axioms_or.h) ----------------------- */
 
 static void lor_bounds(void)
@@ -649,7 +747,14 @@ static void mul_bounds(void)
 	   sign-extension are congruent mod 2^w, so the masked products
 	   agree; decodes computed per the to_signed definition, products in
 	   __int128 (signed for c*e). 64-bit multiplier: ESBMC's SMT
-	   bit-vector backend only, like mul_mask_wrap below. */
+	   bit-vector backend only, like mul_mask_wrap below.
+	   VALIDATION TIER (2026-07-21): the true-mask instance is
+	   intractable in practice — Mac ESBMC/Z3 timed out at 5 and 10
+	   min; server ESBMC 8.4.0 (Z3 4.8.12, and piped to cvc5 1.3.3)
+	   ran >2.5h with no verdict and was killed. Validated instead by
+	   exhaustive enumeration at w=4/8/12 (16.8M cases, 0 violations,
+	   see brute_sext_congr.c) plus the mod-2^w congruence argument
+	   above. Same NIA-class precedent as the mul soundness lemmas. */
 	{
 		uint64_t v64 = nondet_u64(), w64 = nondet_u64();
 		uint64_t ms[2] = { 0xFFFFFFFFULL, 0xFFFFFFFFFFFFFFFFULL };
@@ -684,6 +789,131 @@ static void mul_bounds(void)
 		unsigned __int128 prod = (unsigned __int128)a * b;
 		unsigned __int128 rhs = prod & m;
 		assert(lhs == rhs);
+	}
+}
+
+/* ---------- LandMod (harnesses/exec_alu/axioms_exec.h) ----------------- */
+
+static void land_mod_family(void)
+{
+	/* land_u32_mod / land_u64_mod / cast_u32_mod / cast_u64_mod:
+	   low-w bits == mod 2^w on non-negative integers, and the same
+	   fact for the C casts (which for non-negative mathematical
+	   integers ARE the mod-2^w semantics). The executor-agreement POs
+	   instantiate these on arbitrary uint64 register contents and on
+	   intermediates up to 2^127 (a 64-bit lsl product), so the u64
+	   facts are checked over u128. */
+	{
+		uint64_t x = nondet_u64();
+		assert((x & 0xFFFFFFFFULL) == x % 0x100000000ULL);
+		assert((uint32_t)x == x % 0x100000000ULL);
+	}
+	{
+		unsigned __int128 p = nondet_u128();
+		unsigned __int128 m64 = (unsigned __int128)ALL1 + 1;
+		assert((p & (unsigned __int128)ALL1) == p % m64);
+		assert((uint64_t)p == (uint64_t)(p % m64));
+	}
+	/* cast_u32_neg: two's-complement negation at 32 bits, the bridge the
+	   32-bit NEG arm needs (to_uint32 of a NEGATIVE argument). x ranges
+	   over the uint64 register domain; the negation and the case split
+	   are computed in signed __int128 so no wrap precedes the check. */
+	{
+		uint64_t x = nondet_u64();
+		__int128 negx = -(__int128)x;
+		uint64_t low = x & 0xFFFFFFFFULL;
+		__int128 expect = (low == 0) ? 0 : (__int128)0x100000000LL - low;
+		assert((uint32_t)negx == (uint32_t)expect);
+	}
+}
+
+/* ------- mul_ssound_overflow / mul_ssound_const (eval_mul/eval_mul.h) -- */
+
+static void mul_ssound_folded(void)
+{
+	/* The two signed FOLDED soundness statements, axioms since 2026-07-28
+	   (red in WP's @lemma batch at 900s and isolated at 1800s under the
+	   intersection-form bin_witness). Each cell transcribes the axiom's
+	   full stated domain: nondet register endpoints + ONE nondet witness
+	   pair (the \forall v,w conclusion — nondet covers every instance),
+	   hypotheses as guards, bracket as the assert. to_signed modelled by
+	   the same single-period ternary as the mul_sext_congr cell; all
+	   products in __int128.
+	   VALIDATION TIER: 64-bit multipliers — intractable for this Mac's
+	   ESBMC, like mul_sext_congr above; queue on the server. Local
+	   evidence = exhaustive W=4/5 enumeration over the worst-case gamma,
+	   0 violations (brute_mul_lemmas.c), plus the width-uniform
+	   congruence argument documented at the axioms. */
+	/* mul_ssound_overflow: both s-tracks non-negative, corner products
+	   bracket nw, max product fits below msk>>1. Note the u-tracks are
+	   deliberately UNCONSTRAINED (the axiom does not bound them): the
+	   congruence argument absorbs witnesses whose pattern exceeds msk. */
+	{
+		uint64_t ms[2] = { 0xFFFFFFFFULL, ALL1 };
+		int k = nondet_int() ? 1 : 0;
+		unsigned __int128 m = (unsigned __int128)ms[k];
+		unsigned __int128 half = m >> 1;
+		int64_t dsmin = nondet_i64(), dsmax = nondet_i64();
+		int64_t ssmin = nondet_i64(), ssmax = nondet_i64();
+		int64_t wsmin = nondet_i64(), wsmax = nondet_i64();
+		uint64_t dumin = nondet_u64(), dumax = nondet_u64();
+		uint64_t sumin = nondet_u64(), sumax = nondet_u64();
+		uint64_t v64 = nondet_u64(), w64 = nondet_u64();
+		__int128 dv = ((unsigned __int128)v64 <= half)
+			? (__int128)v64 : (__int128)v64 - ((__int128)m + 1);
+		__int128 dw = ((unsigned __int128)w64 <= half)
+			? (__int128)w64 : (__int128)w64 - ((__int128)m + 1);
+		if (0 <= dsmin && dsmin <= dsmax && 0 <= ssmin && ssmin <= ssmax &&
+		    (__int128)wsmin <= (__int128)dsmin * ssmin &&
+		    (__int128)dsmax * ssmax <= (__int128)wsmax &&
+		    (__int128)dsmax * ssmax <= (__int128)half &&
+		    dumin <= v64 && v64 <= dumax &&
+		    (__int128)dsmin <= dv && dv <= (__int128)dsmax &&
+		    sumin <= w64 && w64 <= sumax &&
+		    (__int128)ssmin <= dw && dw <= (__int128)ssmax) {
+			unsigned __int128 p = ((unsigned __int128)v64 *
+					       (unsigned __int128)w64) & m;
+			__int128 dp = (p <= half) ? (__int128)p
+						  : (__int128)p - ((__int128)m + 1);
+			assert((__int128)wsmin <= dp && dp <= (__int128)wsmax);
+		}
+	}
+	/* mul_ssound_const: both s-tracks pinned to a constant, u-tracks
+	   within the width; nw brackets the decoded masked constant product
+	   (computed signed, masked via the unsigned __int128 two's-complement
+	   low bits — the ACSL math-& on a possibly negative product). */
+	{
+		uint64_t ms[2] = { 0xFFFFFFFFULL, ALL1 };
+		int k = nondet_int() ? 1 : 0;
+		unsigned __int128 m = (unsigned __int128)ms[k];
+		unsigned __int128 half = m >> 1;
+		int64_t dsmin = nondet_i64(), dsmax = nondet_i64();
+		int64_t ssmin = nondet_i64(), ssmax = nondet_i64();
+		int64_t wsmin = nondet_i64(), wsmax = nondet_i64();
+		uint64_t dumin = nondet_u64(), dumax = nondet_u64();
+		uint64_t sumin = nondet_u64(), sumax = nondet_u64();
+		uint64_t v64 = nondet_u64(), w64 = nondet_u64();
+		__int128 dv = ((unsigned __int128)v64 <= half)
+			? (__int128)v64 : (__int128)v64 - ((__int128)m + 1);
+		__int128 dw = ((unsigned __int128)w64 <= half)
+			? (__int128)w64 : (__int128)w64 - ((__int128)m + 1);
+		unsigned __int128 cp = ((unsigned __int128)((__int128)dsmin *
+					(__int128)ssmin)) & m;
+		__int128 dcp = (cp <= half) ? (__int128)cp
+					    : (__int128)cp - ((__int128)m + 1);
+		if ((unsigned __int128)dumax <= m && (unsigned __int128)sumax <= m &&
+		    dsmin == dsmax && ssmin == ssmax &&
+		    (__int128)wsmin <= dcp && dcp <= (__int128)wsmax &&
+		    dumin <= v64 && v64 <= dumax &&
+		    (__int128)dsmin <= dv && dv <= (__int128)dsmax &&
+		    sumin <= w64 && w64 <= sumax &&
+		    (__int128)ssmin <= dw && dw <= (__int128)ssmax) {
+			unsigned __int128 p = ((unsigned __int128)v64 *
+					       (unsigned __int128)w64) & m;
+			__int128 dp = (p <= half) ? (__int128)p
+						  : (__int128)p - ((__int128)m + 1);
+			assert((__int128)wsmin <= dp && dp <= (__int128)wsmax);
+		}
 	}
 }
 
@@ -806,6 +1036,7 @@ int main(void)
 {
 	land_family();
 	land_wrap_family();
+	apply_mask_block_family();
 	bpf_arg_ptr_type();
 	lenshift_core();
 	lenshift_width();
@@ -813,9 +1044,12 @@ int main(void)
 	arshshift();
 	clz_window();
 	land_canon();
+	land_and_canon_gaps();
 	lor_bounds();
 	lxor_bounds();
 	mul_bounds();
+	land_mod_family();
+	mul_ssound_folded();
 	divmod_bounds();
 	shift_opt_family();
 	rte_clz64_contract();

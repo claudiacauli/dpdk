@@ -126,7 +126,7 @@ verify() {
 	SPLIT_PROPS=   # env-prefix assignments to functions persist in bash
 	ISOLATE_PROPS=
 	SKIP_PROPS=
-	local fct= impl= prev= f p props neg= extra
+	local fct= impl= prev= f p props neg= extra t0
 	for f in "$@"; do
 		[ "$prev" = "-wp-fct" ] && fct=$f
 		prev=$f
@@ -135,11 +135,15 @@ verify() {
 		return 0
 	fi
 	ONLY_MATCHED=1
+	t0=$SECONDS
 	for f in "$@"; do
 		case "$f" in */"$fct".c) impl=$f ;; esac
 	done
 	props=$(grep -Eo 'ensures[[:space:]]+[A-Za-z_][A-Za-z_0-9]*[[:space:]]*:' "$impl" |
-		sed -E 's/ensures[[:space:]]+//; s/[[:space:]]*:$//')
+		sed -E 's/ensures[[:space:]]+//; s/[[:space:]]*:$//' | awk '!seen[$0]++')
+	# awk dedup: a FIX-gated contract states the same ensures name in both
+	# #ifdef branches; the raw-file grep would otherwise schedule the cell
+	# twice (observed: apply_mask uopt burned two full timeouts).
 	# SKIP_PROPS="uopt sopt": ensures that are compile-gated OUT of this
 	# cell's build (e.g. PROVE_OPTIMALITY). The grep above reads the raw
 	# file, so without this the pass would run -wp-prop on a clause the
@@ -175,6 +179,7 @@ verify() {
 		neg="$neg${neg:+,}-$p"
 	done
 	wp_pass "$fct" "side-goals" "$@" -wp-prop="$neg"
+	echo "$fct - ${GRN}TOTAL${CLR} - [$(fmt_t $((SECONDS - t0)))]"
 }
 
 # Helper contracts: the contract-annotated static helpers (mul_sext,
@@ -328,12 +333,14 @@ verify $FIXES -wp-timeout 600 \
 # (the half_mask_* Qed lemmas plus the mul monotonicity / bound / wrap
 # axioms) is included ONLY by eval_mul.c, so its lemmas need their own
 # @lemma pass here: the top-level pass runs over a TU that never sees them.
-# 900s not 60: mul_ssound_overflow (the to_signed-strip + framing lemma) is a
-# slow nonlinear goal — ~76s on the reference box, 454s+ on this one (it
-# breached the previous 450s ceiling, 2026-07-20) — and a lemma is proved
-# ONCE, so a generous ceiling costs nothing and keeps it from flickering
-# red (a red lemma would silently prop up ssound). The other 16 lemmas
-# prove in seconds.
+# 900s not 60: a lemma is proved ONCE, so a generous ceiling costs nothing
+# and keeps a slow goal from flickering red (a red lemma would silently
+# prop up ssound). The two signed FOLDED statements (mul_ssound_overflow /
+# mul_ssound_const) are no longer goals here: red at 900s batched AND
+# 1800s isolated under the intersection-form bin_witness (2026-07-28),
+# they are now validated AXIOMS — tier notes in eval_mul.h, enumeration
+# in axiom_validation/brute_mul_lemmas.c, ESBMC cells (server tier) in
+# validate_specs_axioms.c. The remaining lemmas prove in seconds.
 # TU-scoped (unlike specs.h's global lemmas): eval_mul.c is the only TU that
 # includes axioms_mul.h, so a --only run of any other function need not prove
 # these — skip them unless the whole suite or eval_mul itself is being run.
@@ -351,12 +358,17 @@ wp_pass "axioms_mul.h" "lemmas" -wp-timeout 900 -wp-prop @lemma \
 	harnesses/eval_smax_bound/eval_smax_bound.c
 fi
 
-# The mul_usound_overflow / mul_ssound_overflow lemmas (eval_mul.h) state
-# each overflow branch's soundness against the folded predicate, so every
-# soundness goal closes by ONE lemma instantiation instead of a per-goal
-# e-matching search — 300s is ample (whole-property wall ~4m, no single part
-# over ~2m). Without those lemmas the hardest overflow x fallback part did
-# not close even at 1800s.
+# The folded statements (eval_mul.h: mul_usound_* proved lemmas,
+# mul_ssound_* validated axioms) state each branch's soundness against the
+# folded predicate, so every soundness goal closes by ONE instantiation
+# instead of a per-goal e-matching search. Without them the hardest
+# overflow x fallback part did not close even at 1800s.
+# 900s not 300 (2026-07-28): the usound_link_*/ssound_link_* relay stones
+# (eval_mul.c multiply branches) closed the last red pair (part 13 of each
+# track) but their product e-nodes sit in every multiply-path part, and
+# ssound part 18 — margin-zero per rule "contract growth tips cliff goals"
+# — moved past 300s: red at 300, proves inside 900 on the reference box.
+# A generous ceiling costs nothing when the goals prove.
 # uopt/sopt + their ~10 witness stones are compile-gated
 # (PROVE_OPTIMALITY) out of this soundness build: the stones' nonlinear
 # product e-nodes are assumed into every usound/ssound split part and
@@ -368,7 +380,7 @@ fi
 # per opsz it proves 77/77 fast regardless of context.
 SKIP_PROPS="uopt sopt" \
 SPLIT_PROPS="usound ssound swidth" \
-verify $FIXES -wp-timeout 300 \
+verify $FIXES -wp-timeout 900 \
 	-wp-fct eval_mul \
 	harnesses/eval_mul/eval_mul_main.c \
 	harnesses/eval_mul/eval_mul.c \
@@ -462,8 +474,25 @@ verify $FIXES -wp-timeout 60 \
 	harnesses/eval_fill_imm/eval_fill_imm.c \
 	harnesses/eval_fill_imm64/eval_fill_imm64.c
 
+# uopt/sopt compile-gated out (PROVE_OPTIMALITY): the unconditional uopt's
+# bare existential tipped eval_alu cliff stones when assumed at call sites
+# (2026-07-21). Their own cell follows.
+SKIP_PROPS="uopt sopt" \
 verify $FIXES -wp-timeout 600 \
 	-wp-fct eval_apply_mask \
+	harnesses/eval_apply_mask/eval_apply_mask_main.c \
+	harnesses/eval_apply_mask/eval_apply_mask.c \
+	harnesses/eval_smax_bound/eval_smax_bound.c
+
+# eval_apply_mask optimality cell: the gated build (fixed semantics only —
+# the unconditional u-clause was derived under FIX_APPLY_MASK_OPT). The
+# straddle/keep witness stones are FIX-gated, not PROVE-gated, so the main
+# pass above still proves them; here they are assumed-and-proved context.
+[ -n "$FIXES" ] && want eval_apply_mask uopt sopt &&
+wp_pass "eval_apply_mask" "optimality" \
+	"-cpp-extra-args=-DALL_FIXES -DPROVE_OPTIMALITY" -wp-timeout 600 \
+	-wp-fct eval_apply_mask \
+	-wp-prop="uopt,sopt" \
 	harnesses/eval_apply_mask/eval_apply_mask_main.c \
 	harnesses/eval_apply_mask/eval_apply_mask.c \
 	harnesses/eval_smax_bound/eval_smax_bound.c
@@ -471,6 +500,18 @@ verify $FIXES -wp-timeout 600 \
 # eval_sub: NOT split — measured on the certified run of 2026-07-10:
 # split, its ssound takes 30'49" across 378 parts and unchanged_v
 # 11'48"; monolithic the same goals prove in 14s and ~1s.
+# The signed uniform-wrap stones (FIX_SUB_SIGNED_OVFL_OPT) flicker in the
+# batched side-goals cell (2026-07-21: the two _min twins timed out while
+# the _max twins proved); isolate all four.
+# ${FIXES:+...}: these four asserts live inside #ifdef
+# FIX_{ADD,SUB}_SIGNED_OVFL_OPT, which fixes.h defines only under
+# ALL_FIXES. Naming them unconditionally made every --no-fixes run
+# print four FAILED (0/0) lines per operator -- zero goals matched,
+# indistinguishable in the transcript from a real upstream-defect
+# red, in exactly the mode whose reds ARE the bug report
+# (2026-07-28 audit; the same hazard is documented for eval_alu
+# further down).
+ISOLATE_PROPS="${FIXES:+sopt_ofwrap_min sopt_ofwrap_max sopt_ufwrap_min sopt_ufwrap_max}" \
 verify $FIXES -wp-timeout 600 \
 	-wp-fct eval_sub \
 	harnesses/eval_sub/eval_sub_main.c \
@@ -485,6 +526,15 @@ verify $FIXES -wp-timeout 600 \
 # see common/axioms_arsh.h). usound is the opposite: its monolith
 # flickers past 3000s while the 1134 split parts prove in minutes.
 SPLIT_PROPS=usound \
+# ${FIXES:+...}: these four asserts live inside #ifdef
+# FIX_{ADD,SUB}_SIGNED_OVFL_OPT, which fixes.h defines only under
+# ALL_FIXES. Naming them unconditionally made every --no-fixes run
+# print four FAILED (0/0) lines per operator -- zero goals matched,
+# indistinguishable in the transcript from a real upstream-defect
+# red, in exactly the mode whose reds ARE the bug report
+# (2026-07-28 audit; the same hazard is documented for eval_alu
+# further down).
+ISOLATE_PROPS="${FIXES:+sopt_ofwrap_min sopt_ofwrap_max sopt_ufwrap_min sopt_ufwrap_max}" \
 verify $FIXES -wp-timeout 3000 \
 	-wp-fct eval_add \
 	harnesses/eval_add/eval_add_main.c \
@@ -533,7 +583,12 @@ verify $FIXES -wp-timeout 600 -wp-split \
 # all ("not yet implemented" — hypotheses dropped, goal degenerates), so
 # the alarm is unprovable noise in a WP pipeline; alignment holds for any
 # real allocation and is cross-checked by the BMC memsafety dimension.
-ISOLATE_PROPS="sx_vld32 sx_vld64 ord_dx ord_dk @requires" \
+# sx_vld*/ord_d* split per register / per track 2026-07-28: the joined
+# stones went margin-zero as the operator contracts grew (three isolated
+# 1200s runs: sx_vld32 + ord_dk deterministically red, ord_dx at ~half
+# ceiling), with every single candidate culprit exonerated — the cliff
+# pattern; half-conclusions restored the margin.
+ISOLATE_PROPS="sx_vld32_rs sx_vld32_rd sx_vld64_rs sx_vld64_rd ord_dx_u ord_dx_s ord_dk_u ord_dk_s @requires" \
 verify $FIXES -wp-timeout 1200 -no-warn-unaligned-pointer \
 	-wp-fct eval_alu \
 	harnesses/eval_alu/eval_alu_main.c \
@@ -568,6 +623,22 @@ verify $FIXES -wp-timeout 1800 -wp-split \
 	harnesses/eval_arsh/eval_arsh_main.c \
 	harnesses/eval_arsh/eval_arsh.c \
 	harnesses/eval_max_bound/eval_max_bound.c
+
+# EXECUTOR AGREEMENT (exec_* family): the interpreter case-arms in
+# lib/bpf/bpf_exec.c compute exactly the SEM_* concrete semantics
+# (common/semantics.h) the validator predicates abstract — the left
+# arrow of the assurance chain (see harnesses/exec_alu/exec_alu.c).
+# -no-warn-unaligned-pointer: that kernel option makes RTE emit
+# \aligned alarms for the scalar register-array indexing, which WP
+# cannot translate ("\aligned not yet implemented") and which
+# degenerate EVERY goal in the TU; alignment is real in the caller
+# (the register file is a uint64_t stack array). No $FIXES: the
+# harness bodies are verbatim upstream case-arms, no gates.
+if { [ -z "$ONLY" ] || [ "$ONLY" = exec_alu ]; } && [ -z "$PROPS" ]; then
+ONLY_MATCHED=1
+wp_pass "exec_alu" "agreement" -no-warn-unaligned-pointer -wp-timeout 120 \
+	harnesses/exec_alu/exec_alu.c
+fi
 
 if [ -n "$ONLY" ] && [ -z "$ONLY_MATCHED" ]; then
 	echo "error: --only $ONLY matched no verify block" >&2

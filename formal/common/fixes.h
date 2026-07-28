@@ -28,6 +28,21 @@
 #  define FIX_SUB_SIGNED_OVFL   /* same family: spurious signed widening on negative-subtrahend sub */
 #  define FIX_NEG_ZERO          /* include-0 unsigned max widened past -s.min */
 
+/* Carry-parity overflow handling for eval_add/eval_sub: widen ONLY on a wrap
+ * MISMATCH between the two corners (a straddling wrap), not on any wrap. The
+ * kept uniform-wrap interval is exact, so the uopt/sopt guards weaken from
+ * NO-overflow to UNIFORM-overflow (equal carries / equal trits) -- ~1.5x the
+ * unsigned coverage. NOT unconditional: top's endpoints are interior points the
+ * intersection gamma need not contain (brute-refuted; see eval_add.c notes).
+ * _OPT macros supersede the corresponding FIX_*_SIGNED_OVFL. A FIX_NEG_OPT
+ * (dropping neg's INT_MIN guard) was refuted by the same argument and
+ * withdrawn -- see eval_neg.c. */
+#  define FIX_ADD_UNSIGNED_OVFL   /* unsigned carry-parity + equal-carry uopt guard */
+#  define FIX_ADD_SIGNED_OVFL_OPT /* signed trit-parity + equal-trit sopt guard */
+#  define FIX_SUB_UNSIGNED_OVFL   /* sub borrow-parity twin */
+#  define FIX_SUB_SIGNED_OVFL_OPT /* sub signed twin */
+#  define FIX_APPLY_MASK_OPT      /* unsigned masking: widen on block-straddle only; uopt unconditional */
+
 #endif
 
 #endif /* FIXES_H */

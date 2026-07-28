@@ -2,6 +2,7 @@
 #define LEMMAS_CANON_LSH_H
 
 #include "../../common/specs.h"
+#include "eval_lsh.h"
 
 /*
  * lsh-shaped round-trip lemma (2026-07-20, dump-diagnosed). The shared
@@ -34,6 +35,55 @@ lemma to_signed_canon_shift_rt:
 	0 <= w <= m && 0 <= y &&
 	(w << y) <= (m >> 1)
 	==> to_signed(((((uint64_t)w) & m) << y) & m, m) == (w << y);
+*/
+
+/*
+ * FOLDED shift-branch soundness lemmas (2026-07-28, dump-diagnosed).
+ * The four red split parts (usound 10/11, ssound 06/11) are exactly the
+ * parts whose track was SHIFTED, not widened: their conclusion is the
+ * folded soundness predicate, and the in-context search — unfold,
+ * skolemize the witness pair, unfold bin_witness, chain lsl_both_mono,
+ * strip the lands under the mask case split — dies among ~50 hypotheses
+ * even at 1800s. Same remedy as eval_mul's mul_usound_overflow (the
+ * PROVED precedent): state each shift branch's soundness against the
+ * folded predicate with bracket hypotheses in the EXACT stored term
+ * shapes (masked lsl for the u-track, plain int64 lsl for the s-track,
+ * per the uopt_sum_* / s*_shift_id stones), so each red part closes by
+ * ONE instantiation whose hypotheses discharge reflexively.
+ *
+ * Truth, and why THESE prove where the mul ssound lemmas did not: the
+ * nonlinear core is delegated to the trusted LenShift axioms
+ * (lsl_both_mono, lsl_nonneg) and the canon round-trip above — the
+ * lemma PO itself is e-matching plus linear residue, the same class as
+ * mul_usound_overflow (proved), not mul's raw-NIA signed statements
+ * (axiomatized). usound: witnesses sit between the corner shifts by
+ * lsl_both_mono; the corner shift is <= msk by hypothesis, so every
+ * land strips. ssound: 0 <= s.min forces every witness decode
+ * non-negative, so pattern == value (v <= msk from od.u.max <= msk),
+ * the corner bound (s.max << q.max) <= msk >> 1 lets
+ * to_signed_canon_shift_rt collapse the image term to v << y, and
+ * lsl_both_mono brackets it.
+ */
+/*@
+lemma lsh_usound_shift:
+	\forall struct bpf_reg_val od, os, nw; \forall uint64_t msk;
+	(msk == 0xFFFFFFFF || msk == 0xFFFFFFFFFFFFFFFF) &&
+	od.u.min <= od.u.max && os.u.min <= os.u.max &&
+	(od.u.max << os.u.max) <= msk &&
+	nw.u.min <= ((od.u.min << os.u.min) & msk) &&
+	((od.u.max << os.u.max) & msk) <= nw.u.max
+	==> eval_lsh_unsigned_soundness(od, os, nw, msk);
+
+lemma lsh_ssound_shift:
+	\forall struct bpf_reg_val od, os, nw; \forall uint64_t msk;
+	(msk == 0xFFFFFFFF || msk == 0xFFFFFFFFFFFFFFFF) &&
+	0 <= od.s.min && od.s.min <= od.s.max &&
+	os.u.min <= os.u.max &&
+	od.u.max <= msk &&
+	(od.s.max << os.u.max) <= (msk >> 1) &&
+	nw.s.min <= (od.s.min << os.u.min) &&
+	(od.s.max << os.u.max) <= nw.s.max
+	==> eval_lsh_signed_soundness(od, os, nw, msk);
 */
 
 #endif /* LEMMAS_CANON_LSH_H */

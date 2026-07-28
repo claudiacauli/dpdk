@@ -178,6 +178,24 @@ void eval_mul(struct bpf_reg_val *rd, const struct bpf_reg_val *rs, size_t opsz,
 		/*@ assert u_mono: (rd->u.min * rs->u.min) <= (rd->u.max * rs->u.max); */
 		rd->u.max *= rs->u.max;
 		rd->u.min *= rs->u.min;
+		/*
+		 * Relay stones for the folded mul_usound_overflow instantiation
+		 * (2026-07-28, dump-diagnosed): split part 13 — u-const x u-range
+		 * through THIS branch with the s-track also multiplying — is the
+		 * richest product context, and the const equalities widen the
+		 * rewrite space until the axiom's bracket hypotheses are never
+		 * reached at 300s. Stated in the axiom's EXACT shapes (math
+		 * product of Pre endpoints; plain msk bound), so its brackets and
+		 * corner-bound hypotheses discharge reflexively. In-branch on
+		 * purpose (the §6l hazard: post-merge product stones measured
+		 * WORSE); equalities on EXISTING product e-nodes only.
+		 */
+		/*@ assert usound_link_umax:
+		      rd->u.max == \at(rd->u.max,Pre) * \at(rs->u.max,Pre); */
+		/*@ assert usound_link_umin:
+		      rd->u.min == \at(rd->u.min,Pre) * \at(rs->u.min,Pre); */
+		/*@ assert usound_link_corner:
+		      (\at(rd->u.max,Pre) * \at(rs->u.max,Pre)) <= msk; */
 	} else
 		eval_umax_bound(rd, msk);
 
@@ -233,6 +251,18 @@ void eval_mul(struct bpf_reg_val *rd, const struct bpf_reg_val *rs, size_t opsz,
 		 */
 		/*@ assert s_frame: rs->s.min == \at(rs->s.min, Pre); */
 		rd->s.min *= rs->s.min;
+		/* Relay stones, the ssound twins of usound_link_* above (same
+		 * part-13 diagnosis; mul_ssound_overflow is an AXIOM, same folded
+		 * shape). The s stores are already raw int64 products, so the
+		 * _smax/_smin links are definitional plus the s_frame collapse;
+		 * the corner bound restates s_nof32/64 mask-symbolically in the
+		 * axiom's `<= (msk >> 1)` shape. */
+		/*@ assert ssound_link_smax:
+		      rd->s.max == \at(rd->s.max,Pre) * \at(rs->s.max,Pre); */
+		/*@ assert ssound_link_smin:
+		      rd->s.min == \at(rd->s.min,Pre) * \at(rs->s.min,Pre); */
+		/*@ assert ssound_link_corner:
+		      (\at(rd->s.max,Pre) * \at(rs->s.max,Pre)) <= (msk >> 1); */
 	} else
 		eval_smax_bound(rd, msk);
 

@@ -56,8 +56,30 @@
 	// mask_ok/uwidth/swidth, fill_imm's mask_set + width ensures, the
 	// max_bound family); eval_alu's witness-transport chain
 	// (apply_mask's wsound) consumes the mask and width facts.
+	// OPERAND SCALARITY, the other half of the 2026-07-28 audit fix.
+	// The operators require is_scalar of the registers they consume, and
+	// that fact used to arrive from the (unsatisfiable) file-wide
+	// is_scalar. Stated here at operand level instead: satisfiable in
+	// real states (a scalar ALU op on scalar operands), and it makes the
+	// SCOPE explicit -- ALU on POINTER operands (upstream eval_add's
+	// pointer-arithmetic path, bpf_validate.c:665-674) is NOT covered by
+	// this theorem. Verifying that path is separate work; see
+	// docs/review_02_arg_audit.md finding 2.
+	requires ops_scalar: is_scalar(bvf->evst->rv[ins->dst_reg].v.type) &&
+		(BPF_SRC(ins->code) == BPF_X ==>
+			is_scalar(bvf->evst->rv[ins->src_reg].v.type));
+	// SCALAR-OR-POINTER, not is_scalar (2026-07-28 audit fix). The
+	// previous file-wide is_scalar was UNSATISFIABLE in every reachable
+	// state: the shipped validator installs R10 as the frame pointer
+	// (bpf_validate.c:2933-2952, .v.type = BPF_ARG_PTR_STACK =
+	// RTE_BPF_ARG_RESERVED), so no real program state ever had all 11
+	// registers RAW and this whole contract was vacuous for real runs.
+	// The two OPERAND registers still need is_scalar -- the operators
+	// require it -- and that is established per-branch by the sc_d/sc_s
+	// stones below from the ty_* type-provenance chain, not assumed
+	// file-wide.
 	requires regs_ok: \forall integer i; 0 <= i < EBPF_REG_NUM ==>
-		is_scalar(bvf->evst->rv[i].v.type) &&
+		is_scalar_or_pointer(bvf->evst->rv[i].v.type) &&
 		range_ordering(&bvf->evst->rv[i]) &&
 		(bvf->evst->rv[i].mask == _32_BIT_MASK ||
 		 bvf->evst->rv[i].mask == _64_BIT_MASK) &&
@@ -136,7 +158,14 @@ eval_alu(struct bpf_verifier *bvf, const struct ebpf_insn *ins)
 	 * the E-matcher.
 	 */
 	/*@ assert inv_d: is_scalar(rd->v.type); */
-	/*@ assert inv_s: is_scalar(st->rv[ins->src_reg].v.type); */
+	/* CONDITIONAL since the 2026-07-28 audit fix: source scalarity is
+	 * required (and needed) only for a REGISTER source. For BPF_K the
+	 * src field is unused -- ins_chk pins it to ZERO_REG and rs is
+	 * materialised by fill_imm as RAW -- so nothing downstream reads
+	 * the src register's type on that path (ty_s is likewise
+	 * X-guarded). */
+	/*@ assert inv_s: BPF_SRC(ins->code) == BPF_X ==>
+	      is_scalar(st->rv[ins->src_reg].v.type); */
 	/*@ assert ord_d: range_ordering(rd); */
 	/*@ assert ord_s: range_ordering(&st->rv[ins->src_reg]); */
 
@@ -145,12 +174,20 @@ eval_alu(struct bpf_verifier *bvf, const struct ebpf_insn *ins)
 		eval_apply_mask(&rs, msk);
 		/* relay ord_d across THIS arm's rs-local call: asserted here
 		 * (one callee post, unmerged heap) because after the branch
-		 * merge the same fact does not close even at 900s */
-		/*@ assert ord_dx: range_ordering(rd); */
+		 * merge the same fact does not close even at 900s.
+		 * SPLIT per track (2026-07-28): the whole-predicate stones went
+		 * margin-zero as the operator contracts grew -- ord_dk red in
+		 * three consecutive isolated 1200s runs, ord_dx oscillating at
+		 * ~half ceiling -- with every candidate culprit exonerated
+		 * individually (METHOD rule 13: fix structurally). Half the
+		 * conclusion, same relay point. */
+		/*@ assert ord_dx_u: unsigned_range_ordering(rd); */
+		/*@ assert ord_dx_s: signed_range_ordering(rd); */
 	} else {
 		rs = (struct bpf_reg_val){.v = {.size = sz,},};
 		eval_fill_imm(&rs, msk, ins->imm);
-		/*@ assert ord_dk: range_ordering(rd); */
+		/*@ assert ord_dk_u: unsigned_range_ordering(rd); */
+		/*@ assert ord_dk_s: signed_range_ordering(rd); */
 	}
 
 	eval_apply_mask(rd, msk);
@@ -177,16 +214,31 @@ eval_alu(struct bpf_verifier *bvf, const struct ebpf_insn *ins)
 		eval_fill_imm(rd, UINT64_MAX, 0);
 		/*@ assert ty_sx: rd->v.type == RTE_BPF_ARG_RAW &&
 		      rs.v.type == RTE_BPF_ARG_RAW; */
+		/* ground zero-pins (2026-07-28): rs carries THREE layered callee
+		 * posts by here (arm init + arm call + this zeroing) and its
+		 * split validity stone still spun; pin the four zeroed fields as
+		 * ground values (fill_imm's const_u/const_s at imm 0) so the
+		 * vld/wid stones below unfold on literals, not post chains. */
+		/*@ assert sx_rs_zero: rs.u.min == 0 && rs.u.max == 0 &&
+		      rs.s.min == 0 && rs.s.max == 0; */
+		/*@ assert sx_rd_zero: rd->u.min == 0 && rd->u.max == 0 &&
+		      rd->s.min == 0 && rd->s.max == 0; */
 		/* the zeroed registers are trivially well-formed at ANY op
 		 * width; pinned here (tiny context) because fill_imm's
 		 * ensures speak of UINT64_MAX while the operators need msk.
 		 * PER-MASK: with msk symbolic the msk>>1 terms inside
 		 * range_validity never ground (the standard per-mask
 		 * conditional-stone pattern, cf. eval_mul's u_nof32/64). */
-		/*@ assert sx_vld32: msk == _32_BIT_MASK ==>
-		      range_validity(&rs, msk) && range_validity(rd, msk); */
-		/*@ assert sx_vld64: msk == _64_BIT_MASK ==>
-		      range_validity(&rs, msk) && range_validity(rd, msk); */
+		/* per-REGISTER split (2026-07-28), same rationale as ord_dx_*:
+		 * the two-register conjunction sat at margin zero. */
+		/*@ assert sx_vld32_rs: msk == _32_BIT_MASK ==>
+		      range_validity(&rs, msk); */
+		/*@ assert sx_vld32_rd: msk == _32_BIT_MASK ==>
+		      range_validity(rd, msk); */
+		/*@ assert sx_vld64_rs: msk == _64_BIT_MASK ==>
+		      range_validity(&rs, msk); */
+		/*@ assert sx_vld64_rd: msk == _64_BIT_MASK ==>
+		      range_validity(rd, msk); */
 		/*@ assert sx_wid32: msk == _32_BIT_MASK ==>
 		      range_within_width(&rs, msk) &&
 		      range_within_width(rd, msk); */

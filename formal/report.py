@@ -119,6 +119,7 @@ WP_TIMEOUTS = {
 # well-formedness, then everything else. Unlisted props append alphabetically.
 PROP_ORDER = [
     "usound", "ssound",
+    "uopt", "sopt", "selfopt",
     "uord", "sord", "uwidth", "swidth",
     "agree_min", "agree_max", "valid", "type_ok",
     "err_iff", "err_frame",
@@ -127,7 +128,7 @@ PROP_ORDER = [
     "unchanged_v", "unchanged_mask", "unchanged_s", "unchanged_u",
     "unchanged_size", "unchanged_buf", "mask_set", "mask_ok", "type_raw",
     "ufull", "umax_ok", "sfull32", "sfull64",
-    "zero", "cover", "shape", "width", "half32", "half64", "tight",
+    "zero", "cover", "shape", "width", "half32", "half64", "optimal", "tight",
     "uand_nonneg", "uand_width", "uand_cover", "uand_half32", "uand_half64",
     "uor_nonneg", "uor_width", "uor_lb", "uor_cover", "uor_half32", "uor_half64",
     "umin64", "umax64", "uwiden32", "ukeep32",
@@ -135,7 +136,8 @@ PROP_ORDER = [
 ]
 
 # Column groups drive the show/hide toggles; "key" shows by default.
-_KEY = {"usound", "ssound", "uord", "sord", "uwidth", "swidth",
+_KEY = {"usound", "ssound", "uopt", "sopt", "selfopt",
+        "uord", "sord", "uwidth", "swidth",
         "agree_min", "agree_max", "valid", "type_ok"}
 _STRUCT = {"unchanged_v", "unchanged_mask", "unchanged_s", "unchanged_u",
            "unchanged_size", "unchanged_buf", "mask_set", "mask_ok", "type_raw",
@@ -156,6 +158,9 @@ def order_props(props):
 PROP_DESC = {
     "usound": "tracked unsigned range contains the true value, every input",
     "ssound": "tracked signed range contains the true value, every input",
+    "uopt": "unsigned range is TIGHTEST: each endpoint attained (best abstract transformer)",
+    "sopt": "signed range is TIGHTEST: each endpoint attained (best abstract transformer)",
+    "selfopt": "output is self-optimal: each endpoint attained by a representable value",
     "uord": "unsigned range ordered (min ≤ max)",
     "sord": "signed range ordered (min ≤ max)",
     "uwidth": "unsigned range within the operand width",
@@ -192,7 +197,8 @@ PROP_DESC = {
     "width": "result mask fits the operand width",
     "half32": "32-bit input under msk>>1 stays under msk>>1",
     "half64": "64-bit input under msk>>1 stays under msk>>1",
-    "tight": "result mask tight for the input's bit-length",
+    "optimal": "result mask op-optimal (tightest 2^k − 1) for the input's bit-length",
+    "tight": "result mask op-optimal for the input's bit-length (legacy label → optimal)",
     "uand_nonneg": "AND result is non-negative",
     "uand_width": "AND result within width",
     "uand_cover": "bounds a & b for all a≤v1, b≤v2",

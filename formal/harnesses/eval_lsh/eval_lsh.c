@@ -128,6 +128,12 @@ void eval_lsh(struct bpf_reg_val *rd, const struct bpf_reg_val *rs, size_t opsz,
 		rd->s.max <<= rs->u.max;
 		rd->s.min <<= rs->u.min;
 		/*@ assert swidth_stone: rd->s.max <= (int64_t)(msk >> 1); */
+		/* Uncast twin of swidth_stone, in the exact hypothesis shape of
+		 * lemmas_canon_lsh.h's lsh_ssound_shift (msk >> 1 with no
+		 * to_sint64 wrapper), so the lemma's corner bound discharges
+		 * reflexively at the ssound parts. */
+		/*@ assert ssound_link_smax:
+		      (\at(rd->s.max,Pre) << \at(rs->u.max,Pre)) <= (msk >> 1); */
 		/*@ assert smax_shift_id:
 		      rd->s.max == \at(rd->s.max, Pre) << \at(rs->u.max, Pre); */
 		/*@ assert smin_shift_id:

@@ -69,6 +69,15 @@ static int64_t neg_sext(uint64_t p, uint64_t msk)
 	// INVOLUTION on [0, msk], so the only value that can attain an output
 	// endpoint e is neg_pat(e) -- there is nothing to search for. self_optimal
 	// then discharges that the preimage is representable.
+	//
+	// DO NOT drop the INT_MIN guard (attempted and withdrawn 2026-07-21, macro
+	// FIX_NEG_OPT): in the wrap branch the body emits signed top, whose SMAX_w
+	// endpoint is attained only by the INTERIOR preimage pattern of -(SMIN_w+1)
+	// -- and the intersection gamma of a self-optimal input need NOT contain
+	// it. Brute-refuted at W=3: input u[1,4] s[-4,1] has gamma = {1,4}; the
+	// image under neg_pat reads {-1,-4}, so the emitted top [SMIN_w,SMAX_w]
+	// never attains SMAX_w (scratchpad brute_opt_fixes.c). The arc/boundary
+	// attainment argument is valid only for single-track interval semantics.
 	ensures uopt: self_optimal(\old(*rd), msk) &&
 		\old(rd->s.min) > -(int64_t)(msk >> 1) - 1
 			==> eval_neg_unsigned_optimal(\old(*rd), *rd, msk);

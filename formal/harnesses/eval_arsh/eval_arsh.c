@@ -1,4 +1,5 @@
 #include "eval_arsh.h"
+#include "lemmas_canon_arsh.h"
 #include "../eval_max_bound/eval_max_bound.h"
 
 /*@
@@ -104,6 +105,18 @@ void eval_arsh(struct bpf_reg_val *rd, const struct bpf_reg_val *rs, size_t opsz
 			/*@ check uopt_sum_neg_umin:
 			      (((uint64_t)(to_signed(\at(rd->u.min,Pre), msk)
 			         >> \at(rs->u.min,Pre))) & msk) == rd->u.min; */
+			/* assert twins of the two checks above, in the EXACT
+			 * bracket-hypothesis shape of arsh_usound_neg32
+			 * (lemmas_canon_arsh.h), so its instantiation at the
+			 * usound part-04 PO discharges reflexively. Asserts,
+			 * not checks, ON PURPOSE: the lemma needs them as
+			 * downstream hypotheses (2026-07-28). */
+			/*@ assert usound_link_neg_umax:
+			      rd->u.max == (((uint64_t)(to_signed(\at(rd->u.max,Pre), msk)
+			         >> \at(rs->u.max,Pre))) & msk); */
+			/*@ assert usound_link_neg_umin:
+			      rd->u.min == (((uint64_t)(to_signed(\at(rd->u.min,Pre), msk)
+			         >> \at(rs->u.min,Pre))) & msk); */
 		} else if (rd->u.max > half) {
 			/* spans the sign boundary: no tight interval exists */
 			rd->u.min = 0;
