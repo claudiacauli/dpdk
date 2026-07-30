@@ -1,5 +1,38 @@
+/*
+ * eval_alu — the ALU dispatcher. Verbatim body from
+ * lib/bpf/bpf_validate.c; contract of record.
+ *
+ * Beyond the frame, error semantics and register-invariant clauses, this
+ * file carries the DISPATCHER-LEVEL VALUE SOUNDNESS theorem (usound /
+ * ssound): the composition of every per-operator soundness theorem
+ * through the dispatch, on both tracks, for all 13 dispatched opcodes.
+ * Merged from compose_deliver2.c on 2026-07-30 after it proved 43/43 in
+ * one pass on a clean lemma base (lemmas_deliver.h 50/50 and
+ * axioms_alu.h 26/26 standalone, ZERO new axioms).
+ *
+ * Two stated scope limits, different in kind — see the `width_fits`
+ * note below, and docs/review_04_composition.md §4.
+ *
+ * WHEN RE-RUNNING THIS FILE: pass every operator .c file (as the
+ * verify_all.sh cell does) and check that `missing-spec` appears ZERO
+ * times. A spec-less run gives the operators default contracts, so the
+ * per-arm stones prove nothing — and it can come out green.
+ *
+ * Delivery strategy (the 2026-07-16 attempt carried the UNFOLDED
+ * quantified form across the heap and timed out at ~247s):
+ *   - state each hypothesis as ONE FOLDED predicate (alu_wit_covers /
+ *     alu_imm_covers) at the call site where the callee post is a single
+ *     heap step away — atomic, so one e-matching instantiation;
+ *   - discharge it from the PROVED delivery lemma
+ *     wit_covers_from_apply_mask (compose_deliver1.c, 15/15) rather than
+ *     from apply_mask's raw ensures;
+ *   - relay across eval_defined, which `assigns \nothing`, so the facts
+ *     survive without re-derivation.
+ */
 #include "eval_alu.h"
 #include "../eval_defined/eval_defined.h"
+#include "axioms_alu.h"			/* the 12 unsigned compose lemmas */
+#include "lemmas_deliver.h"		/* delivery bridge + signed composes */
 #include "../eval_apply_mask/eval_apply_mask.h"
 #include "../eval_fill_imm/eval_fill_imm.h"
 #include "../eval_add/eval_add.h"
@@ -87,6 +120,25 @@
 			bvf->evst->rv[i].mask) &&
 		signed_range_within_width(&bvf->evst->rv[i],
 			bvf->evst->rv[i].mask);
+	// SCOPE OF THE VALUE-SOUNDNESS ENSURES (Phase C, 2026-07-29).
+	// usound/ssound below cover instructions whose OP WIDTH does not
+	// exceed the width already tracked for the operands. The WIDENING
+	// case — a register tracked at 32 bits read by a 64-bit ALU op — is
+	// excluded, and NOT for proof-engineering reasons: eval_apply_mask
+	// does not re-derive the signed track across a width increase
+	// (smin64/smax64, eval_apply_mask.c:39-40, either KEEP the old bound
+	// or top out). A register holding pattern 0x80000000 tracked at 32
+	// bits has signed reading -2^31; its true 64-bit value is +2^31.
+	// Keeping the old bound therefore describes the widened value
+	// incorrectly, so alu_wit_covers is FALSE there and no amount of
+	// search would prove it. This is the same cross-track consistency
+	// gap FIX_APPLY_MASK_CONSIST names and never implemented (see the
+	// deleted vld_d stone below). Tracked as a candidate defect; needs a
+	// BMC witness before it is called one.
+	requires width_fits:
+		alu_msk(ins->code) <= bvf->evst->rv[ins->dst_reg].mask &&
+		(BPF_SRC(ins->code) == BPF_X ==>
+			alu_msk(ins->code) <= bvf->evst->rv[ins->src_reg].mask);
 	terminates \true;
 	// Framing: ONLY the destination register may change — certified by
 	// this assigns clause (checked as its own side-goal); an explicit
@@ -125,7 +177,29 @@
 	ensures swidth: \result == \null ==>
 		signed_range_within_width(&bvf->evst->rv[ins->dst_reg],
 			alu_msk(ins->code));
-	// (usound/ssound value soundness is PARKED — see the header note.)
+	// DISPATCHER-LEVEL VALUE SOUNDNESS (Phase C, 2026-07-29): whatever
+	// concrete values the referenced registers could really hold before
+	// the instruction, the machine's true result for this operation lies
+	// within the ranges tracked afterwards. This is the composition of
+	// every per-operator soundness theorem through the dispatch, and it
+	// is what makes "the validator never accepts a program whose ALU
+	// result escapes its tracked ranges" a single stated theorem.
+	ensures usound: \result == \null && !alu_selfxor(*ins) ==>
+		eval_alu_unsigned_soundness(
+			\old(bvf->evst->rv[ins->dst_reg]),
+			\old(bvf->evst->rv[ins->src_reg]),
+			*ins, bvf->evst->rv[ins->dst_reg]);
+	// SIGNED track, every dispatched operator — no opcode exclusion.
+	// LSH/RSH were the last two to close (2026-07-30, round 12): the
+	// fix was to state the bridging predicate in the DISPATCHER's term
+	// shape rather than in a third shape of its own, after a -wp-out
+	// dump showed the r9/r10 bridge matched neither side it bridged.
+	// See lemmas_deliver.h and docs/review_04_composition.md §4.3.
+	ensures ssound: \result == \null && !alu_selfxor(*ins) ==>
+		eval_alu_signed_soundness(
+			\old(bvf->evst->rv[ins->dst_reg]),
+			\old(bvf->evst->rv[ins->src_reg]),
+			*ins, bvf->evst->rv[ins->dst_reg]);
 	// OP-OPTIMALITY: per-branch -- eval_alu only DISPATCHES to the per-op eval_*
 	// functions, so op-optimality (and its self-optimality precondition) is exactly
 	// that of the branch taken; nothing to state at the dispatcher level.
@@ -172,6 +246,13 @@ eval_alu(struct bpf_verifier *bvf, const struct ebpf_insn *ins)
 	if (BPF_SRC(ins->code) == BPF_X) {
 		rs = st->rv[ins->src_reg];
 		eval_apply_mask(&rs, msk);
+		/* DELIVERY (source, register operand). apply_mask's usound/ssound
+		 * are one heap step away here; wit_covers_from_apply_mask folds
+		 * them into the single atomic predicate the composition lemmas
+		 * take as a hypothesis. Stating it HERE and not after the merge
+		 * is the whole point: the callee post is still in reach. */
+		/*@ assert wc_s: alu_wit_covers(
+		      \at(bvf->evst->rv[ins->src_reg], Pre), rs, msk); */
 		/* relay ord_d across THIS arm's rs-local call: asserted here
 		 * (one callee post, unmerged heap) because after the branch
 		 * merge the same fact does not close even at 900s.
@@ -186,11 +267,47 @@ eval_alu(struct bpf_verifier *bvf, const struct ebpf_insn *ins)
 	} else {
 		rs = (struct bpf_reg_val){.v = {.size = sz,},};
 		eval_fill_imm(&rs, msk, ins->imm);
+		/* DELIVERY (source, immediate operand): fill_imm's const_u/const_s
+		 * pin both tracks to the materialised immediate exactly, which is
+		 * the K-source half of alu_compose_pre. */
+		/*@ assert ic_s: alu_imm_covers(rs, *ins, msk); */
 		/*@ assert ord_dk_u: unsigned_range_ordering(rd); */
 		/*@ assert ord_dk_s: signed_range_ordering(rd); */
 	}
 
-	eval_apply_mask(rd, msk);
+	/* DELIVERY (destination), SPLIT via a C label (2026-07-29). The
+	 * single-stone form timed out at 900s while its source-side twin
+	 * proved in 494ms: the difference is that rd is a HEAP pointer, so
+	 * one goal had to both apply the delivery lemma AND relate *rd back
+	 * to Pre through the branch merge. Splitting gives each half a
+	 * ground fact: pin_d is a plain struct equality over an untouched
+	 * location (nothing above writes the heap — the branch arms write
+	 * only the local rs), and wc_d then applies the lemma entirely in
+	 * terms of the label, where apply_mask's post is one step away. */
+	PreMask: eval_apply_mask(rd, msk);
+
+	/* wc_d applies the delivery lemma in LABEL-RELATIVE terms and proves
+	 * in ~2s. Connecting the label back to Pre is separate bookkeeping —
+	 * and the whole-STRUCT equality for it times out (the same fact the
+	 * certified file notes "re-derives the same fact the hard way and
+	 * times out in this TU"). So pin the FIVE FIELDS alu_wit_covers
+	 * actually reads, as scalar equalities: each is a single untouched
+	 * heap location, and the folded predicate then rewrites field-wise.
+	 * Ground-pin pattern, cf. sx_rs_zero. */
+	/*@ assert wc_d: alu_wit_covers(\at(*rd, PreMask), *rd, msk); */
+	/*@ assert pin_d_mask: \at(rd->mask, PreMask) ==
+	      \at(bvf->evst->rv[ins->dst_reg].mask, Pre); */
+	/*@ assert pin_d_umin: \at(rd->u.min, PreMask) ==
+	      \at(bvf->evst->rv[ins->dst_reg].u.min, Pre); */
+	/*@ assert pin_d_umax: \at(rd->u.max, PreMask) ==
+	      \at(bvf->evst->rv[ins->dst_reg].u.max, Pre); */
+	/*@ assert pin_d_smin: \at(rd->s.min, PreMask) ==
+	      \at(bvf->evst->rv[ins->dst_reg].s.min, Pre); */
+	/*@ assert pin_d_smax: \at(rd->s.max, PreMask) ==
+	      \at(bvf->evst->rv[ins->dst_reg].s.max, Pre); */
+	/* Now the Pre-form, which is what the usound/ssound ensures need. */
+	/*@ assert wc_d_pre: alu_wit_covers(
+	      \at(bvf->evst->rv[ins->dst_reg], Pre), *rd, msk); */
 
 	/*
 	 * Type-provenance stones: apply_mask's unchanged_v keeps both
@@ -286,38 +403,226 @@ eval_alu(struct bpf_verifier *bvf, const struct ebpf_insn *ins)
 	 * it never even sees `rs`. Source ordering comes from ord_s below.
 	 */
 	/*@ assert ord_s2: range_ordering(&rs); */
+
+	/* SEPARATION + FIELD PINS for the source relay. `rs` is a LOCAL but
+	 * it is ADDRESS-TAKEN (eval_apply_mask(&rs, ...)), so WP models it in
+	 * the heap and cannot, on its own, rule out that eval_apply_mask(rd,
+	 * msk) aliased it — which is why the wc_s2/ic_s2 relays failed while
+	 * their in-branch originals proved. State the separation, then pin
+	 * the four tracked fields across the intervening calls so the
+	 * congruence lemmas can move the predicate onto the current value.
+	 * (The \separated fact is the one the typed memory model needs;
+	 * without it, post-store reads of rs are falsifiable.) */
+	/*@ assert sep_rs: \separated(&rs, rd); */
+	/*@ assert sep_rs_evst: \separated(&rs, &bvf->evst->rv[0 ..
+	      EBPF_REG_NUM - 1]); */
+
+	/* DELIVERY RELAY across eval_defined (which `assigns \nothing`, so
+	 * nothing above can have changed) and past the self-xor rewrite.
+	 * Re-stated HERE, in the state the dispatch POs are evaluated in, so
+	 * each composition lemma finds its hypothesis as a ground fact rather
+	 * than re-deriving it through the branch merge. Self-xor is excluded:
+	 * that path zeroes both registers and is discharged by the dedicated
+	 * alu_compose_selfxor_{u,s} lemmas from the zero pins. */
+	/*@ assert wc_d2: !alu_selfxor(*ins) ==> alu_wit_covers(
+	      \at(bvf->evst->rv[ins->dst_reg], Pre), *rd, msk); */
+	/*@ assert wc_s2: !alu_selfxor(*ins) && BPF_SRC(ins->code) == BPF_X ==>
+	      alu_wit_covers(\at(bvf->evst->rv[ins->src_reg], Pre), rs, msk); */
+	/*@ assert ic_s2: BPF_SRC(ins->code) != BPF_X ==>
+	      alu_imm_covers(rs, *ins, msk); */
+	/* The shared hypothesis bundle every composition lemma takes, folded
+	 * into ONE predicate — this is the fact the 2026-07-16 attempt tried
+	 * to carry unfolded. */
+	/*@ assert cpre: !alu_selfxor(*ins) && msk == alu_msk(ins->code) ==>
+	      alu_compose_pre(\at(bvf->evst->rv[ins->dst_reg], Pre),
+	                      \at(bvf->evst->rv[ins->src_reg], Pre),
+	                      *rd, rs, *ins, msk); */
 	/*@ assert wid_s32: msk == _32_BIT_MASK ==>
 	      range_within_width(&rs, msk); */
 	/*@ assert wid_s64: msk == _64_BIT_MASK ==>
 	      range_within_width(&rs, msk); */
 
 
-	if (op == BPF_ADD)
+	/*
+	 * PER-ARM SOUNDNESS STONES (Phase C, 2026-07-29). Monolithic, the
+	 * usound ensures times out at 1800s; under -wp-split it becomes 960
+	 * parts of which 17 straggle (clustered, i.e. specific arms). Each
+	 * stone below turns its arm into ONE composition-lemma instantiation
+	 * in a small context: the lemma's hypotheses are exactly `cpre` (a
+	 * ground fact by here) plus the operator's own usound/ssound
+	 * postcondition, one heap step away. The ensures then follows from
+	 * the arm disjunction instead of being re-derived per split part.
+	 * Same per-branch-relay shape as the dispatcher's ord_dx/ord_dk
+	 * stones. selfxor is excluded here and carried by its own lemma from
+	 * the zero pins; the `else` arm widens to full width, where
+	 * alu_dispatched is false and the predicate is vacuous.
+	 */
+	if (op == BPF_ADD) {
 		eval_add(rd, &rs, msk);
-	else if (op == BPF_SUB)
+		/*@ assert us_add: !alu_selfxor(*ins) ==>
+		      eval_alu_unsigned_soundness(
+		        \at(bvf->evst->rv[ins->dst_reg], Pre),
+		        \at(bvf->evst->rv[ins->src_reg], Pre), *ins, *rd); */
+		/*@ assert ss_add: !alu_selfxor(*ins) ==>
+		      eval_alu_signed_soundness(
+		        \at(bvf->evst->rv[ins->dst_reg], Pre),
+		        \at(bvf->evst->rv[ins->src_reg], Pre), *ins, *rd); */
+	} else if (op == BPF_SUB) {
 		eval_sub(rd, &rs, msk);
-	else if (op == BPF_LSH)
+		/*@ assert us_sub: !alu_selfxor(*ins) ==>
+		      eval_alu_unsigned_soundness(
+		        \at(bvf->evst->rv[ins->dst_reg], Pre),
+		        \at(bvf->evst->rv[ins->src_reg], Pre), *ins, *rd); */
+		/*@ assert ss_sub: !alu_selfxor(*ins) ==>
+		      eval_alu_signed_soundness(
+		        \at(bvf->evst->rv[ins->dst_reg], Pre),
+		        \at(bvf->evst->rv[ins->src_reg], Pre), *ins, *rd); */
+	} else if (op == BPF_LSH) {
 		eval_lsh(rd, &rs, opsz, msk);
-	else if (op == BPF_RSH)
+		/*@ assert us_lsh: !alu_selfxor(*ins) ==>
+		      eval_alu_unsigned_soundness(
+		        \at(bvf->evst->rv[ins->dst_reg], Pre),
+		        \at(bvf->evst->rv[ins->src_reg], Pre), *ins, *rd); */
+		/*@ assert ss_lsh: !alu_selfxor(*ins) ==>
+		      eval_alu_signed_soundness(
+		        \at(bvf->evst->rv[ins->dst_reg], Pre),
+		        \at(bvf->evst->rv[ins->src_reg], Pre), *ins, *rd); */
+	} else if (op == BPF_RSH) {
 		eval_rsh(rd, &rs, opsz, msk);
-	else if (op == EBPF_ARSH)
+		/*@ assert us_rsh: !alu_selfxor(*ins) ==>
+		      eval_alu_unsigned_soundness(
+		        \at(bvf->evst->rv[ins->dst_reg], Pre),
+		        \at(bvf->evst->rv[ins->src_reg], Pre), *ins, *rd); */
+		/*@ assert ss_rsh: !alu_selfxor(*ins) ==>
+		      eval_alu_signed_soundness(
+		        \at(bvf->evst->rv[ins->dst_reg], Pre),
+		        \at(bvf->evst->rv[ins->src_reg], Pre), *ins, *rd); */
+	} else if (op == EBPF_ARSH) {
 		eval_arsh(rd, &rs, opsz, msk);
-	else if (op == BPF_AND)
+		/*@ assert us_arsh: !alu_selfxor(*ins) ==>
+		      eval_alu_unsigned_soundness(
+		        \at(bvf->evst->rv[ins->dst_reg], Pre),
+		        \at(bvf->evst->rv[ins->src_reg], Pre), *ins, *rd); */
+		/*@ assert ss_arsh: !alu_selfxor(*ins) ==>
+		      eval_alu_signed_soundness(
+		        \at(bvf->evst->rv[ins->dst_reg], Pre),
+		        \at(bvf->evst->rv[ins->src_reg], Pre), *ins, *rd); */
+	} else if (op == BPF_AND) {
 		eval_and(rd, &rs, opsz, msk);
-	else if (op == BPF_OR)
+		/*@ assert us_and: !alu_selfxor(*ins) ==>
+		      eval_alu_unsigned_soundness(
+		        \at(bvf->evst->rv[ins->dst_reg], Pre),
+		        \at(bvf->evst->rv[ins->src_reg], Pre), *ins, *rd); */
+		/*@ assert ss_and: !alu_selfxor(*ins) ==>
+		      eval_alu_signed_soundness(
+		        \at(bvf->evst->rv[ins->dst_reg], Pre),
+		        \at(bvf->evst->rv[ins->src_reg], Pre), *ins, *rd); */
+	} else if (op == BPF_OR) {
 		eval_or(rd, &rs, opsz, msk);
-	else if (op == BPF_XOR)
+		/*@ assert us_or: !alu_selfxor(*ins) ==>
+		      eval_alu_unsigned_soundness(
+		        \at(bvf->evst->rv[ins->dst_reg], Pre),
+		        \at(bvf->evst->rv[ins->src_reg], Pre), *ins, *rd); */
+		/*@ assert ss_or: !alu_selfxor(*ins) ==>
+		      eval_alu_signed_soundness(
+		        \at(bvf->evst->rv[ins->dst_reg], Pre),
+		        \at(bvf->evst->rv[ins->src_reg], Pre), *ins, *rd); */
+	} else if (op == BPF_XOR) {
 		eval_xor(rd, &rs, opsz, msk);
-	else if (op == BPF_MUL)
+		/* selfxor took the zeroing path above and is covered by
+		 * alu_compose_selfxor_{u,s} from the zero pins. */
+		/*@ assert us_xor: !alu_selfxor(*ins) ==>
+		      eval_alu_unsigned_soundness(
+		        \at(bvf->evst->rv[ins->dst_reg], Pre),
+		        \at(bvf->evst->rv[ins->src_reg], Pre), *ins, *rd); */
+		/*@ assert ss_xor: !alu_selfxor(*ins) ==>
+		      eval_alu_signed_soundness(
+		        \at(bvf->evst->rv[ins->dst_reg], Pre),
+		        \at(bvf->evst->rv[ins->src_reg], Pre), *ins, *rd); */
+		/* SELF-XOR is EXCLUDED from the value-soundness ensures
+		 * (see the contract note). Its soundness is TRUE and easy
+		 * to see by hand -- alu_operands forces y == x, so the
+		 * result is x ^ x == 0, and eval_xor is sound so its output
+		 * range must contain 0 -- but mechanising it needs
+		 * eval_xor's soundness INSTANTIATED at the witness pair
+		 * (0,0), i.e. a witness guess inside a quantified
+		 * hypothesis. Measured 2026-07-29: the in-code stones time
+		 * out at 900s and only 1 of 4 folded ground-mask lemmas
+		 * (xor_covers_zero_*) closes at 600s. Left as an explicit
+		 * exclusion rather than an assumed assert. */
+	} else if (op == BPF_MUL) {
 		eval_mul(rd, &rs, opsz, msk);
-	else if (op == BPF_DIV || op == BPF_MOD)
+		/*@ assert us_mul: !alu_selfxor(*ins) ==>
+		      eval_alu_unsigned_soundness(
+		        \at(bvf->evst->rv[ins->dst_reg], Pre),
+		        \at(bvf->evst->rv[ins->src_reg], Pre), *ins, *rd); */
+		/*@ assert ss_mul: !alu_selfxor(*ins) ==>
+		      eval_alu_signed_soundness(
+		        \at(bvf->evst->rv[ins->dst_reg], Pre),
+		        \at(bvf->evst->rv[ins->src_reg], Pre), *ins, *rd); */
+	} else if (op == BPF_DIV || op == BPF_MOD) {
 		err = eval_divmod(op, rd, &rs, msk);
-	else if (op == BPF_NEG)
+		/*@ assert us_divmod: !alu_selfxor(*ins) && err == \null ==>
+		      eval_alu_unsigned_soundness(
+		        \at(bvf->evst->rv[ins->dst_reg], Pre),
+		        \at(bvf->evst->rv[ins->src_reg], Pre), *ins, *rd); */
+		/*@ assert ss_divmod: !alu_selfxor(*ins) && err == \null ==>
+		      eval_alu_signed_soundness(
+		        \at(bvf->evst->rv[ins->dst_reg], Pre),
+		        \at(bvf->evst->rv[ins->src_reg], Pre), *ins, *rd); */
+	} else if (op == BPF_NEG) {
 		eval_neg(rd, opsz, msk);
-	else if (op == EBPF_MOV)
+		/*@ assert us_neg: !alu_selfxor(*ins) ==>
+		      eval_alu_unsigned_soundness(
+		        \at(bvf->evst->rv[ins->dst_reg], Pre),
+		        \at(bvf->evst->rv[ins->src_reg], Pre), *ins, *rd); */
+		/*@ assert ss_neg: !alu_selfxor(*ins) ==>
+		      eval_alu_signed_soundness(
+		        \at(bvf->evst->rv[ins->dst_reg], Pre),
+		        \at(bvf->evst->rv[ins->src_reg], Pre), *ins, *rd); */
+	} else if (op == EBPF_MOV) {
 		*rd = rs;
-	else
+		/*@ assert us_mov: !alu_selfxor(*ins) ==>
+		      eval_alu_unsigned_soundness(
+		        \at(bvf->evst->rv[ins->dst_reg], Pre),
+		        \at(bvf->evst->rv[ins->src_reg], Pre), *ins, *rd); */
+		/*@ assert ss_mov: !alu_selfxor(*ins) ==>
+		      eval_alu_signed_soundness(
+		        \at(bvf->evst->rv[ins->dst_reg], Pre),
+		        \at(bvf->evst->rv[ins->src_reg], Pre), *ins, *rd); */
+	} else {
 		eval_max_bound(rd, msk);
+		/* alu_dispatched(op) is FALSE here, so both soundness
+		 * predicates hold vacuously — no stone needed. */
+	}
+
+	/*
+	 * MERGE STONES. The per-arm stones above are branch postconditions;
+	 * at this point WP holds their disjunction. Collapsing that to one
+	 * fact HERE makes the remaining step PROPOSITIONAL (pick the arm,
+	 * quote its stone) instead of leaving the ensures to redo the case
+	 * analysis with all the arithmetic in scope — which times out at
+	 * 1800s monolithic and leaves 17 straggler parts under -wp-split.
+	 */
+	/* Stated on bvf->evst->rv[ins->dst_reg], NOT on *rd: the ensures
+	 * re-reads the register through that access path, and making the
+	 * stone syntactically match saves the final goal from also having to
+	 * re-derive rd == &bvf->evst->rv[ins->dst_reg] with the whole
+	 * dispatch context in scope. No selfxor guard here — the self-xor
+	 * arm now has its own stones. */
+	/*@ assert us_all: !alu_selfxor(*ins) && err == \null ==>
+	      eval_alu_unsigned_soundness(
+	        \at(bvf->evst->rv[ins->dst_reg], Pre),
+	        \at(bvf->evst->rv[ins->src_reg], Pre), *ins,
+	        bvf->evst->rv[ins->dst_reg]); */
+	/* SIGNED: no opcode exclusion — LSH/RSH closed 2026-07-30
+	 * (compose_try_signed12.c 33/33, lemmas_deliver.h 50/50 standalone),
+	 * so the signed track now covers every dispatched operator. */
+	/*@ assert ss_all: !alu_selfxor(*ins) && err == \null ==>
+	      eval_alu_signed_soundness(
+	        \at(bvf->evst->rv[ins->dst_reg], Pre),
+	        \at(bvf->evst->rv[ins->src_reg], Pre), *ins,
+	        bvf->evst->rv[ins->dst_reg]); */
 
 	return err;
 }

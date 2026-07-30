@@ -564,6 +564,26 @@ verify $FIXES -wp-timeout 600 -wp-split \
 	harnesses/eval_smax_bound/eval_smax_bound.c \
 	harnesses/eval_umax_bound/eval_umax_bound.c
 
+# The dispatcher's lemma base, proved STANDALONE and FIRST. eval_alu.c
+# includes both headers, and -wp-fct never schedules lemma goals, so the
+# eval_alu cell below ASSUMES all 76 of these without proving any. An
+# unproved lemma there would silently manufacture the composition proof
+# (it has happened twice: docs/review_04_composition.md §5). These two
+# cells are what make the cell below mean something.
+# Neither header contains an axiom: the composition adds no trusted base.
+# Gated like axioms_mul.h below: only eval_alu.c includes these headers, so
+# a --only run of anything else need not prove them, and a --props run
+# cannot match a @lemma goal at all. Without the gate they cost ~2 minutes
+# on EVERY --only block — the exact waste that comment records.
+# if/fi, not `A && B || C`: that chain parses as `(A && B) || C`.
+if { [ -z "$ONLY" ] || [ "$ONLY" = eval_alu ]; } && [ -z "$PROPS" ]; then
+wp_pass "axioms_alu.h" "lemmas" -wp-timeout 600 -wp-prop @lemma \
+	harnesses/eval_alu/axioms_alu_check.c
+
+wp_pass "lemmas_deliver.h" "lemmas" -wp-timeout 600 -wp-prop @lemma \
+	harnesses/eval_alu/lemmas_deliver_check.c
+fi
+
 # eval_alu: the dispatcher glue theorem (error semantics, register
 # invariant re-established at the op width; framing is certified by the
 # assigns clause — an explicit quantified frame ensures explodes, don't
@@ -588,6 +608,11 @@ verify $FIXES -wp-timeout 600 -wp-split \
 # 1200s runs: sx_vld32 + ord_dk deterministically red, ord_dx at ~half
 # ceiling), with every single candidate culprit exonerated — the cliff
 # pattern; half-conclusions restored the margin.
+# This cell also carries the composition theorem (usound/ssound) and its
+# 15 delivery + 22 per-arm + 2 merge stones, merged 2026-07-30. The
+# source list below must stay complete: with an operator .c missing,
+# Frama-C warns `missing-spec`, gives that operator a default contract,
+# and the per-arm stone for it proves nothing — green and meaningless.
 ISOLATE_PROPS="sx_vld32_rs sx_vld32_rd sx_vld64_rs sx_vld64_rd ord_dx_u ord_dx_s ord_dk_u ord_dk_s @requires" \
 verify $FIXES -wp-timeout 1200 -no-warn-unaligned-pointer \
 	-wp-fct eval_alu \
