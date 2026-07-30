@@ -80,11 +80,44 @@ fmt_t() {
 # matched nothing, e.g. a typo'd -wp-prop) is a failure too. A timeout
 # line's wall-clock can reach ~3x -wp-timeout: each scheduled prover
 # (alt-ergo, z3, cvc5) gets the full budget in turn.
+# WP_TIMEOUT_PCT=n scales every -wp-timeout in the suite to n% of its
+# written value (default 100 = unchanged). One knob, applied here so it
+# reaches every cell including the gated optimality ones.
+#
+# Why a scale and not lower constants: the ceilings are calibrated to the
+# REFERENCE box (MacBook, frama-c 32.0 / alt-ergo 2.6.2), where eval_mul
+# ssound part 18 is red at 300s and proves inside 900. A faster or
+# newer-toolchain machine can run far tighter — measured 2026-07-30 on
+# the 2x EPYC 9454 server (frama-c 33.0 / alt-ergo 2.6.3, cache-free,
+# -wp-par 48): eval_mul ssound proves 77/77 at EVERY ceiling from 30s to
+# 900s, slowest goal 26.3s, wall-clock identical throughout. There the
+# ceiling only bounds the pathological case, and bounding it matters:
+# provers are tried IN TURN, each getting the full budget, so one goal
+# where the first prover's search goes exponential costs 3x the ceiling
+# (observed: two runs at ~970s = ~70s of work + one full 900s budget).
+#
+# So: WP_TIMEOUT_PCT=10 on that server caps the bad case at 3x90s instead
+# of 3x900s and costs nothing on the good path. Do NOT bake it into the
+# constants — the reference box needs them.
+scale_timeouts() {
+	local a prev= pct=${WP_TIMEOUT_PCT:-100}
+	SCALED=()
+	for a in "$@"; do
+		if [ "$prev" = -wp-timeout ] && [ "$pct" != 100 ]; then
+			a=$(( a * pct / 100 ))
+			[ "$a" -lt 1 ] && a=1
+		fi
+		prev=$a
+		SCALED+=("$a")
+	done
+}
+
 wp_pass() {
 	local label=$1 check=$2 out np nt t0 dt
 	shift 2
+	scale_timeouts "$@"
 	t0=$SECONDS
-	out=$(frama-c -rte -wp -wp-prover alt-ergo,z3,cvc5 -wp-par "$NPAR" "$@" 2>&1)
+	out=$(frama-c -rte -wp -wp-prover alt-ergo,z3,cvc5 -wp-par "$NPAR" "${SCALED[@]}" 2>&1)
 	dt=$(fmt_t $((SECONDS - t0)))
 	read -r np nt <<< "$(printf '%s\n' "$out" | awk '/Proved goals:/ {
 		split($0, a, "/"); n = a[1]; sub(/.*:/, "", n)

@@ -1,5 +1,32 @@
 This folder contains the formal verification harnesses for the lib/bpf/bpf_validate.c code.
 
+Two environment knobs on `verify_all.sh`, both defaulting to the
+reference behaviour:
+
+- `WP_PAR=n` — parallel prover tasks (default: one per physical core).
+- `WP_TIMEOUT_PCT=n` — scale every `-wp-timeout` to n% of its written
+  value (default 100).
+
+Both are for adapting to a machine, never for changing what is claimed.
+The ceilings in the script are calibrated to the reference box below;
+`WP_TIMEOUT_PCT` exists so a faster or newer-toolchain machine can run
+tighter without editing constants the reference box depends on. Measured
+on a 2x EPYC 9454 server (96 physical cores, frama-c 33.0 / alt-ergo
+2.6.3, cache-free, `WP_PAR=48`) on 2026-07-30:
+
+- `eval_mul` `ssound` proves 77/77 at **every** ceiling from 30s to 900s,
+  slowest goal 26.3s, wall-clock identical throughout — so there the
+  ceiling only bounds the pathological case.
+- That case is real: provers are tried IN TURN, each getting the full
+  budget, so one goal whose first prover goes exponential costs 3x the
+  ceiling. Two of five runs came in at ~970s = ~70s of work plus one
+  full 900s budget.
+- `WP_PAR` above 48 bought nothing (the run never saturated 48 — CPU/wall
+  ratio 22.7), and prover ORDER changed neither wall-clock nor CPU.
+
+Do not copy those numbers onto the reference box: there `eval_mul`
+`ssound` part 18 is red at 300s and proves inside 900.
+
 Developed with tool versions:
 - frama-c 32.0 (Germanium)
 - alt-ergo 2.6.2  (REQUIRED — see below)
