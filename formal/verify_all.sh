@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
 
+export FRAMAC_WP_CACHE=none
+
 FIXES=
 ONLY=
 PROPS=
@@ -64,7 +66,7 @@ wp_pass() {
 	shift 2
 	scale_timeouts "$@"
 	t0=$SECONDS
-	out=$(frama-c -rte -wp -wp-cache=none -wp-no-cache-env -wp-prover alt-ergo,z3,cvc5 -wp-par "$NPAR" "${SCALED[@]}" 2>&1)
+	out=$(frama-c -rte -wp -wp-cache=none -wp-prover alt-ergo,z3,cvc5 -wp-par "$NPAR" "${SCALED[@]}" 2>&1)
 	dt=$(fmt_t $((SECONDS - t0)))
 	read -r np nt <<< "$(printf '%s\n' "$out" | awk '/Proved goals:/ {
 		split($0, a, "/"); n = a[1]; sub(/.*:/, "", n)
