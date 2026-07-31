@@ -6,8 +6,6 @@ int nondet_int(void);
 
 #define REQUIRE(cond) do { if (!(cond)) return 0; } while (0)
 
-/* ---- C mirrors of the ACSL predicates in common/specs.h ---- */
-
 static int range_ordering(const struct bpf_reg_val *rv)
 {
 	return rv->u.min <= rv->u.max && rv->s.min <= rv->s.max;
@@ -41,8 +39,7 @@ int main(void)
 	uint64_t msk = nondet_u64();
 	REQUIRE(msk == _32_BIT_MASK || msk == _64_BIT_MASK);
 #ifdef BMC_32
-	/* restrict to the 32-bit mask: the missing sign extension (negative
-	 * pattern stored unextended in the signed track) manifests here. */
+
 	REQUIRE(msk == _32_BIT_MASK);
 #endif
 #ifdef BMC_64
@@ -54,21 +51,17 @@ int main(void)
 
 	eval_fill_imm64(&rv, msk, val);
 
-	/* cross-check of the intended postconditions */
-	assert(rv.mask == msk);                         /* mask_set */
-	assert(range_ordering(&rv));                    /* uord + sord */
-	assert(range_within_width(&rv, msk));           /* uwidth + swidth */
+	assert(rv.mask == msk);
+	assert(range_ordering(&rv));
+	assert(range_within_width(&rv, msk));
 
-	/* exact constant: the unsigned track holds the w-bit pattern... */
-	assert(rv.u.min == val && rv.u.max == val);     /* const_u */
+	assert(rv.u.min == val && rv.u.max == val);
 
-	/* ...and the signed track its canonical (sign-extended) reading */
 	int64_t canon = (val <= (msk >> 1)) ? (int64_t)val
 					    : (int64_t)(val - (msk + 1));
-	assert(rv.s.min == canon && rv.s.max == canon); /* const_s */
+	assert(rv.s.min == canon && rv.s.max == canon);
 
 #ifdef BMC_SANITY
-	/* must FAIL: proves the asserts above are reachable */
 	assert(0);
 #endif
 

@@ -1,13 +1,4 @@
-/*
- * BMC harness for eval_fill_max_bound (mirrors the ACSL contract in
- * eval_fill_max_bound.c). Loop-free, full-width symbolic inputs: complete.
- *
- * Run from this directory:
- *   cbmc  -DALL_FIXES eval_fill_max_bound_bmc.c eval_fill_max_bound.c \
- *         ../eval_max_bound/eval_max_bound.c \
- *         ../eval_umax_bound/eval_umax_bound.c ../eval_smax_bound/eval_smax_bound.c
- *   esbmc -DALL_FIXES (same file list)
- */
+
 #include <assert.h>
 #include "eval_fill_max_bound.h"
 
@@ -16,8 +7,6 @@ int64_t nondet_i64(void);
 int nondet_int(void);
 
 #define REQUIRE(cond) do { if (!(cond)) return 0; } while (0)
-
-/* ---- C mirrors of the ACSL predicates in common/specs.h ---- */
 
 static int is_scalar_or_pointer(enum rte_bpf_arg_type t)
 {
@@ -62,31 +51,30 @@ int main(void)
 	uint64_t mask = nondet_u64();
 	REQUIRE(mask == _32_BIT_MASK || mask == _64_BIT_MASK);
 
-	/* \old(*rv) */
 	const struct bpf_reg_val old = rv;
 
 	eval_fill_max_bound(&rv, mask);
 
-	assert(rv.u.min == 0 && rv.u.max == mask);              /* ufull */
+	assert(rv.u.min == 0 && rv.u.max == mask);
 	assert(rv.u.max == _32_BIT_MASK ||
-		rv.u.max == _64_BIT_MASK);                      /* umax_ok */
+		rv.u.max == _64_BIT_MASK);
 	assert(mask != _32_BIT_MASK ||
-		(rv.s.min == INT32_MIN && rv.s.max == INT32_MAX)); /* sfull32 */
+		(rv.s.min == INT32_MIN && rv.s.max == INT32_MAX));
 	assert(mask != _64_BIT_MASK ||
-		(rv.s.min == INT64_MIN && rv.s.max == INT64_MAX)); /* sfull64 */
-	assert(rv.mask == mask);                                /* mask_set */
+		(rv.s.min == INT64_MIN && rv.s.max == INT64_MAX));
+	assert(rv.mask == mask);
 	assert(rv.mask == _32_BIT_MASK ||
-		rv.mask == _64_BIT_MASK);                       /* mask_ok */
-	assert(rv.v.type == RTE_BPF_ARG_RAW);                   /* type_raw */
-	assert(rv.v.size == old.v.size);                        /* unchanged_size */
-	assert(rv.v.buf_size == old.v.buf_size);                /* unchanged_buf */
-	assert(rv.u.min <= rv.u.max);                           /* uord */
-	assert(rv.s.min <= rv.s.max);                           /* sord */
-	assert(range_validity(&rv, mask));                      /* valid */
-	assert(rv.u.max <= mask);                               /* uwidth */
+		rv.mask == _64_BIT_MASK);
+	assert(rv.v.type == RTE_BPF_ARG_RAW);
+	assert(rv.v.size == old.v.size);
+	assert(rv.v.buf_size == old.v.buf_size);
+	assert(rv.u.min <= rv.u.max);
+	assert(rv.s.min <= rv.s.max);
+	assert(range_validity(&rv, mask));
+	assert(rv.u.max <= mask);
 	assert(-(int64_t)(mask >> 1) - 1 <= rv.s.min &&
-		rv.s.max <= (int64_t)(mask >> 1));              /* swidth */
-	assert(is_scalar_or_pointer(rv.v.type));                /* type_ok */
+		rv.s.max <= (int64_t)(mask >> 1));
+	assert(is_scalar_or_pointer(rv.v.type));
 
 #ifdef BMC_SANITY
 	assert(0);

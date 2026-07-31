@@ -6,4 +6,4 @@
 
 uint64_t eval_uor_max(uint64_t v1, uint64_t v2, size_t opsz);
 
-#endif /* EVAL_UOR_MAX_H */
+#endif

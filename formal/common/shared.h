@@ -8,8 +8,6 @@
 #define _32_BIT_MASK 0x00000000FFFFFFFFULL
 #define _64_BIT_MASK 0xFFFFFFFFFFFFFFFFULL
 
-/* Instruction decode (lib/bpf/bpf_def.h): class, source and op selectors
- * plus the ALU opcode set eval_alu dispatches on. */
 #define	BPF_CLASS(code)	((code) & 0x07)
 #define	BPF_SRC(code)	((code) & 0x08)
 #define	BPF_OP(code)	((code) & 0xf0)
@@ -37,22 +35,18 @@
 #define RTE_BPF_ARG_PTR_TYPE(x)	((x) & RTE_BPF_ARG_PTR)
 
 enum rte_bpf_arg_type {
-	RTE_BPF_ARG_UNDEF,      /**< undefined */
-	RTE_BPF_ARG_RAW,        /**< scalar value */
-	RTE_BPF_ARG_PTR = 0x10, /**< pointer to data buffer */
-	RTE_BPF_ARG_PTR_MBUF,   /**< pointer to rte_mbuf */
-	RTE_BPF_ARG_RESERVED    /**< reserved for internal use */
+	RTE_BPF_ARG_UNDEF,
+	RTE_BPF_ARG_RAW,
+	RTE_BPF_ARG_PTR = 0x10,
+	RTE_BPF_ARG_PTR_MBUF,
+	RTE_BPF_ARG_RESERVED
 };
 
 struct rte_bpf_arg {
 	enum rte_bpf_arg_type type;
-	/**
-	 * for ptr type - max size of data buffer it points to
-	 * for raw type - the size (in bytes) of the value
-	 */
+
 	size_t size;
 	size_t buf_size;
-	/**< for mbuf ptr type, max size of rte_mbuf data buffer */
 };
 
 struct bpf_reg_val {
@@ -68,15 +62,6 @@ struct bpf_reg_val {
 	} u;
 };
 
-/* Instruction and evaluation-state shapes for the eval_alu harness
- * (lib/bpf/bpf_def.h / bpf_validate.c). EBPF_REG_NUM is upstream's enum
- * value (EBPF_REG_0 .. EBPF_REG_10, then EBPF_REG_NUM = 11). The 4-bit
- * register fields can encode up to 15, so idx < EBPF_REG_NUM is NOT
- * true by construction: upstream establishes it before eval_alu runs
- * (ins_chk's WRT_REGS/RD_REGS masks reject regs > 10), and the
- * harnesses state that assumption explicitly (eval_alu's idx_ok
- * requires; the BMC drivers' REQUIRE). Only the members eval_alu
- * touches are modelled on bpf_verifier. */
 #define	EBPF_REG_NUM	11
 
 struct ebpf_insn {
@@ -132,4 +117,4 @@ static inline unsigned int rte_clz64(uint64_t v)
 }
 #endif
 
-#endif /* SHARED_H */
+#endif

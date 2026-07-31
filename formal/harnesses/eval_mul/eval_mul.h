@@ -18,15 +18,6 @@ predicate eval_mul_unsigned_soundness(struct bpf_reg_val od, struct bpf_reg_val 
 		bin_witness(od, os, x, y, msk)
 			==> nw.u.min <= ((x * y) & msk) <= nw.u.max;
 
-// Overflow-branch soundness as a LEMMA whose conclusion is the folded
-// predicate: proved once (= the isolated mask-strip + framing, seconds),
-// then each overflow soundness goal closes by ONE instantiation. Its trigger
-// is the predicate application (rare — only the soundness goals), so it
-// cannot perturb; it replaces the per-goal e-matching search that explodes
-// in the full heap context (the overflow x smax-fallback combination times
-// out even at 1800s otherwise). Bracket hypotheses (nw brackets the corner
-// products; product fits the width) so it applies through the C multiply's
-// to_uint64 with no separate no-wrap step.
 lemma mul_usound_overflow:
 	\forall struct bpf_reg_val od, os, nw; \forall uint64_t msk;
 		(msk == 0xFFFFFFFF || msk == 0xFFFFFFFFFFFFFFFF) &&
@@ -37,27 +28,6 @@ lemma mul_usound_overflow:
 		od.u.max * os.u.max <= msk
 		==> eval_mul_unsigned_soundness(od, os, nw, msk);
 
-// Signed both-non-negative overflow branch, the ssound twin: v,w >= 0 and the
-// product fits below msk>>1, so to_signed strips to the product and the corner
-// products bracket every witness. Same instantiation strategy as
-// mul_usound_overflow — but a trusted AXIOM, not a lemma: under the
-// intersection-form bin_witness (u-bounds AND s-decode bounds on every
-// witness) the folded statement is a nonlinear \forall-struct goal that WP
-// does not close — red in the @lemma batch at 900s AND isolated (-wp-prop
-// pair) at 1800s with alt-ergo/z3/cvc5 on an idle box, 2026-07-28.
-// VALIDATION (same tier as mul_sext_congr, axioms_mul.h):
-//  - exhaustive enumeration at W=4/5 over the WORST-case gamma
-//    (od.u = os.u = [0,M]; a thinner u-track only removes witnesses),
-//    0 violations — axiom_validation/brute_mul_lemmas.c;
-//  - the width-uniform congruence argument: to_signed subtracts 0 or one
-//    period, so every witness is congruent to its decode mod msk+1; the
-//    masked witness product therefore equals the masked decode product,
-//    decode products of non-negatives are corner-bracketed (monotone),
-//    and a product <= msk>>1 strips to itself under to_signed;
-//  - ESBMC full-domain instance cells in validate_specs_axioms.c
-//    (server tier: 64-bit multipliers, intractable for this Mac's ESBMC).
-// The u-track twins remain PROVED lemmas; the trusted surface is exactly
-// the two signed folded statements.
 axiomatic MulSsoundOverflow {
 axiom mul_ssound_overflow:
 	\forall struct bpf_reg_val od, os, nw; \forall uint64_t msk;
@@ -70,21 +40,6 @@ axiom mul_ssound_overflow:
 		==> eval_mul_signed_soundness(od, os, nw, msk);
 }
 
-// Constants-branch soundness, the third folded lemma (diagnosed
-// 2026-07-20: the U1 usound split family, parts 01..10, is the
-// both-u-constant path, where mul_usound_overflow cannot fire — its
-// `product <= msk` hypothesis is false there; that is exactly why the
-// code masks). Both u ranges pinned to a point, so every witness pair
-// IS (od.u.min, os.u.min) and the masked product equals the stored
-// endpoints by congruence — no mask-strip needed, the mask stays on
-// both sides. Closes the family by one instantiation, like the
-// overflow twins.
-//
-// (A PROVE_MUL_SOUND gate briefly wrapped these two lemmas while a
-// swidth regression was bisected, 2026-07-20. Post-mortem: swidth is a
-// CLIFF goal at margin zero — removing any one addition, these lemmas
-// included, did NOT restore it; the real fix was the opsz case split,
-// SPLIT_PROPS+=swidth in the driver. The lemmas are ungated again.)
 lemma mul_usound_const:
 	\forall struct bpf_reg_val od, os, nw; \forall uint64_t msk;
 		(msk == 0xFFFFFFFF || msk == 0xFFFFFFFFFFFFFFFF) &&
@@ -93,18 +48,6 @@ lemma mul_usound_const:
 		((od.u.max * os.u.max) & msk) <= nw.u.max
 		==> eval_mul_unsigned_soundness(od, os, nw, msk);
 
-// Signed constants branch, the ssound twin (the S1 family, split parts
-// 1 + 11k: both-s-constant path via mul_sext2). Both s ranges pinned,
-// so every witness pattern is congruent to its constant mod msk+1
-// (exactly the mul_sext_congr fact), the masked witness product equals
-// the canonical masked product, and the brackets close. The u-track
-// hypotheses only bound the witnesses within the width.
-// AXIOM, not lemma — same red-at-900/1800s history, validation tier and
-// trust rationale as mul_ssound_overflow above; enumeration covers ALL
-// u-range x s-constant combinations at W=4 (brute_mul_lemmas.c), plus
-// the ESBMC full-domain cell (server tier). With this an axiom, the
-// PROVE_MUL_LEMMAS-gated mul_sext_congr axiom no longer has a consumer
-// goal (BACKLOG: retire it if mul_usound_const proves without it).
 axiomatic MulSsoundConst {
 axiom mul_ssound_const:
 	\forall struct bpf_reg_val od, os, nw; \forall uint64_t msk;
@@ -117,11 +60,6 @@ axiom mul_ssound_const:
 		==> eval_mul_signed_soundness(od, os, nw, msk);
 }
 
-// OP-OPTIMALITY (mul-optimal). Each output endpoint is ATTAINED by a
-// representable input PAIR (bin_witness). PRELIMINARY (optimality_notes.md);
-// nonlinear but corner-based on non-negatives (products are monotone there), so
-// Category A: op-optimal from SELF-OPTIMAL operands in the no-overflow regime;
-// the signed track only when BOTH operands are non-negative (mixed signs widen).
 predicate eval_mul_unsigned_optimal(struct bpf_reg_val od, struct bpf_reg_val os,
                                     struct bpf_reg_val nw, uint64_t msk) =
 	(\exists integer x, y; bin_witness(od, os, x, y, msk) && ((x * y) & msk) == nw.u.max) &&
@@ -135,4 +73,4 @@ predicate eval_mul_signed_optimal(struct bpf_reg_val od, struct bpf_reg_val os,
 
 void eval_mul(struct bpf_reg_val *rd, const struct bpf_reg_val *rs, size_t opsz, uint64_t msk);
 
-#endif /* EVAL_MUL_H */
+#endif

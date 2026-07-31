@@ -7,10 +7,6 @@
 #include "../../common/lemmas_canon.h"
 
 /*@
-// Arithmetic right shift. ACSL's >> on mathematical integers IS floor
-// division by 2^y, i.e. exactly the arithmetic shift the machine
-// performs on the sign-extended value — so the signed predicate needs
-// no masking at all: canonical values stay canonical under v >> y.
 predicate eval_arsh_signed_soundness(struct bpf_reg_val od, struct bpf_reg_val os,
                                      struct bpf_reg_val nw, uint64_t msk) =
 	\forall integer v, y;
@@ -18,8 +14,6 @@ predicate eval_arsh_signed_soundness(struct bpf_reg_val od, struct bpf_reg_val o
 		y < op_bits(msk)
 			==> nw.s.min <= (to_signed(v, msk) >> y) <= nw.s.max;
 
-// Unsigned view of the same operation: take the pattern x, sign-extend
-// (to_signed), arithmetic-shift, re-encode as a w-bit pattern.
 predicate eval_arsh_unsigned_soundness(struct bpf_reg_val od, struct bpf_reg_val os,
                                        struct bpf_reg_val nw, uint64_t msk) =
 	\forall integer x, y;
@@ -29,11 +23,6 @@ predicate eval_arsh_unsigned_soundness(struct bpf_reg_val od, struct bpf_reg_val
 				(((uint64_t)(to_signed(x, msk) >> y)) & msk)
 				<= nw.u.max;
 
-// OP-OPTIMALITY (arsh-optimal). Each output endpoint is ATTAINED by a
-// representable (value, shift) corner (bin_witness), shift < width. PRELIMINARY
-// (optimality_notes.md); the signed track is op-optimal for shift < width; the
-// unsigned track additionally needs the pattern interval NOT to span the sign
-// boundary (the spanning case has no tight interval and widens to [0,msk]).
 predicate eval_arsh_signed_optimal(struct bpf_reg_val od, struct bpf_reg_val os,
                                    struct bpf_reg_val nw, uint64_t msk) =
 	(\exists integer v, y; bin_witness(od, os, v, y, msk) && y < op_bits(msk) && (to_signed(v, msk) >> y) == nw.s.max) &&

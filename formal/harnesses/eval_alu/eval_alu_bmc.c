@@ -10,12 +10,15 @@ int16_t nondet_i16(void);
 
 #define REQUIRE(cond) do { if (!(cond)) return 0; } while (0)
 
-/* ---- C mirrors of the ACSL predicates ---- */
-
 static int is_scalar_or_pointer(enum rte_bpf_arg_type t)
 {
 	return t == RTE_BPF_ARG_RAW || t == RTE_BPF_ARG_PTR ||
 		t == RTE_BPF_ARG_PTR_MBUF || t == RTE_BPF_ARG_RESERVED;
+}
+
+static int is_scalar(enum rte_bpf_arg_type t)
+{
+	return t == RTE_BPF_ARG_RAW;
 }
 
 static int range_ordering(const struct bpf_reg_val *rv)
@@ -30,7 +33,6 @@ static int range_within_width(const struct bpf_reg_val *rv, uint64_t mask)
 		rv->s.max <= (int64_t)(mask >> 1);
 }
 
-/* canonical (sign-extended) reading of the low-w-bit pattern p */
 static int64_t sext(uint64_t p, uint64_t m)
 {
 	return (p <= (m >> 1)) ? (int64_t)p : (int64_t)(p - (m + 1));
@@ -59,7 +61,6 @@ int main(void)
 
 	for (i = 0; i != EBPF_REG_NUM; i++) {
 		havoc_reg(&st.rv[i]);
-		/* the verifier-loop register invariant (requires regs_ok) */
 		REQUIRE(st.rv[i].v.type == RTE_BPF_ARG_UNDEF ||
 			is_scalar_or_pointer(st.rv[i].v.type));
 		REQUIRE(range_ordering(&st.rv[i]));
@@ -74,8 +75,6 @@ int main(void)
 	ins.off = nondet_i16();
 	ins.imm = nondet_i32();
 
-	/* upstream's ins_chk (WRT_REGS/RD_REGS masks) rejects register
-	 * indices > 10 before eval_alu runs; the 4-bit fields alone reach 15 */
 	REQUIRE(ins.dst_reg < EBPF_REG_NUM && ins.src_reg < EBPF_REG_NUM);
 
 	REQUIRE(BPF_CLASS(ins.code) == BPF_ALU ||
@@ -83,7 +82,6 @@ int main(void)
 
 	uint32_t op = BPF_OP(ins.code);
 #ifdef BMC_LIGHT_OPS
-	/* keep the bit-vector queries linear: no multiply/divide/shifts */
 	REQUIRE(op == BPF_ADD || op == BPF_SUB || op == BPF_AND ||
 		op == BPF_OR || op == BPF_XOR || op == EBPF_MOV ||
 		op == BPF_NEG);
@@ -101,10 +99,8 @@ int main(void)
 	uint64_t msk = (BPF_CLASS(ins.code) == BPF_ALU) ?
 		_32_BIT_MASK : _64_BIT_MASK;
 
-	/* pre state */
 	const struct bpf_eval_state old = st;
 
-	/* the definedness rejection, mirrored on the pre state */
 	int selfxor = op == BPF_XOR && BPF_SRC(ins.code) == BPF_X &&
 		ins.src_reg == ins.dst_reg;
 	int undef =
@@ -114,15 +110,7 @@ int main(void)
 		 old.rv[ins.src_reg].v.type == RTE_BPF_ARG_UNDEF);
 
 #ifdef BMC_SND
-	/*
-	 * Value-soundness mirror (the usound/ssound ensures): pick a
-	 * concrete operand pair the instruction could really operate on
-	 * (an intersection witness of each referenced register, aliased
-	 * when both operands name one register) and check afterwards that
-	 * the tracked ranges cover the machine's true result. The witness
-	 * registers additionally satisfy the mask/width part of the real
-	 * verifier loop invariant, which every producer ensures.
-	 */
+
 	uint64_t wx = nondet_u64(), wy = nondet_u64();
 	{
 		const struct bpf_reg_val *wd = &old.rv[ins.dst_reg];
@@ -132,6 +120,16 @@ int main(void)
 		REQUIRE(ws->mask == _32_BIT_MASK || ws->mask == _64_BIT_MASK);
 		REQUIRE(range_within_width(wd, wd->mask));
 		REQUIRE(range_within_width(ws, ws->mask));
+
+		REQUIRE(is_scalar(wd->v.type));
+		if (BPF_SRC(ins.code) == BPF_X)
+			REQUIRE(is_scalar(ws->v.type));
+
+#ifndef BMC_NO_WIDTH_FITS
+		REQUIRE(msk <= wd->mask);
+		if (BPF_SRC(ins.code) == BPF_X)
+			REQUIRE(msk <= ws->mask);
+#endif
 
 		if (op != EBPF_MOV && !selfxor) {
 			REQUIRE(wx <= wd->mask);
@@ -156,7 +154,6 @@ int main(void)
 
 	const char *err = eval_alu(&bvf, &ins);
 
-	/* frame: only rv[dst_reg] may change */
 	uint32_t j = nondet_u8();
 	REQUIRE(j < EBPF_REG_NUM);
 	if (j != ins.dst_reg) {
@@ -167,21 +164,19 @@ int main(void)
 			st.rv[j].s.min == old.rv[j].s.min &&
 			st.rv[j].s.max == old.rv[j].s.max &&
 			st.rv[j].u.min == old.rv[j].u.min &&
-			st.rv[j].u.max == old.rv[j].u.max);     /* frame */
+			st.rv[j].u.max == old.rv[j].u.max);
 	}
 
-	/* error semantics */
-	assert(!undef || err != NULL);                          /* err_def */
+	assert(!undef || err != NULL);
 	assert(err == NULL || undef ||
-		op == BPF_DIV || op == BPF_MOD);                /* err_dom */
+		op == BPF_DIV || op == BPF_MOD);
 	assert(undef || op == BPF_DIV || op == BPF_MOD ||
-		err == NULL);                                   /* noerr */
+		err == NULL);
 
-	/* the register invariant on the touched register, op width */
 	if (err == NULL) {
-		assert(is_scalar_or_pointer(st.rv[ins.dst_reg].v.type)); /* type_ok */
-		assert(range_ordering(&st.rv[ins.dst_reg]));    /* uord + sord */
-		assert(range_within_width(&st.rv[ins.dst_reg], msk)); /* uwidth + swidth */
+		assert(is_scalar_or_pointer(st.rv[ins.dst_reg].v.type));
+		assert(range_ordering(&st.rv[ins.dst_reg]));
+		assert(range_within_width(&st.rv[ins.dst_reg], msk));
 	}
 
 #ifdef BMC_SND
@@ -219,20 +214,19 @@ int main(void)
 			break;
 		case BPF_NEG:  pat = (0 - px) & msk; break;
 		case EBPF_MOV: pat = py; break;
-		default:       in_domain = 0; break; /* fallback arm: full width */
+		default:       in_domain = 0; break;
 		}
 
 		if (in_domain) {
 			assert(st.rv[ins.dst_reg].u.min <= pat &&
-				pat <= st.rv[ins.dst_reg].u.max);        /* usound */
+				pat <= st.rv[ins.dst_reg].u.max);
 			assert(st.rv[ins.dst_reg].s.min <= sext(pat, msk) &&
-				sext(pat, msk) <= st.rv[ins.dst_reg].s.max); /* ssound */
+				sext(pat, msk) <= st.rv[ins.dst_reg].s.max);
 		}
 	}
 #endif
 
 #ifdef BMC_SANITY
-	/* must FAIL: proves the asserts above are reachable */
 	assert(0);
 #endif
 

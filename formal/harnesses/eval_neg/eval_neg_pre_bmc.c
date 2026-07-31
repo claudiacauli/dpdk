@@ -1,25 +1,4 @@
-/*
- * PRECONDITION SEARCH for eval_neg.
- *
- * eval_neg currently requires range_validity (= ordering + agreement). That is
- * too strong: it forces eval_alu to carry the `vld_d` stone, which is FALSE at
- * the call site because eval_apply_mask does not re-establish agreement across
- * a width change. But plain range_ordering is too weak -- eval_neg's two
- * cross-track clamps pull from opposite directions and can inverX the interval
- * (u=[0,10], s=[-3,-1] -> s=[1,0]).
- *
- * So: find a predicate P strictly between them such that
- *
- *   ESTABLISH:  regs_ok(regmask) && apply_mask(msk)  ==>  P(msk)
- *   SUFFICE:    P(msk) && eval_neg(msk)              ==>  uord && sord
- *
- * Compile with -DCAND=<n> to select the candidate, and exactly one of
- * -DMODE_ESTABLISH / -DMODE_SUFFICE.
- *
- * VERDICT: VERIFICATION SUCCESSFUL = the implication holds.
- *          VERIFICATION FAILED     = counterexample, candidate rejected.
- * A candidate is USABLE only if BOTH modes come back SUCCESSFUL.
- */
+
 #include <assert.h>
 #include "eval_neg.h"
 #include "../eval_apply_mask/eval_apply_mask.h"
@@ -55,25 +34,23 @@ static int within_width(const struct bpf_reg_val *rv, uint64_t m)
 		rv->s.max <= (int64_t)(m >> 1);
 }
 
-/* ---- candidate predicates, weakest first ---- */
 static int P(const struct bpf_reg_val *rv, uint64_t m)
 {
-#if   CAND == 0		/* range_ordering only (expected: too weak) */
+#if   CAND == 0
 	return ordering(rv);
-#elif CAND == 1		/* + within_width at the OP mask */
+#elif CAND == 1
 	return ordering(rv) && within_width(rv, m);
-#elif CAND == 2		/* + the signed track cannot start above zero */
+#elif CAND == 2
 	return ordering(rv) && within_width(rv, m) && rv->s.min <= 0;
-#elif CAND == 3		/* + min_agreement only */
+#elif CAND == 3
 	return ordering(rv) && within_width(rv, m) && min_agreement(rv, m);
-#elif CAND == 4		/* + max_agreement only */
+#elif CAND == 4
 	return ordering(rv) && within_width(rv, m) && max_agreement(rv, m);
-#elif CAND == 5		/* the CROSS-TRACK COMPATIBILITY the clamps actually
-			 * need: the unsigned range's negation cannot fall
-			 * entirely outside the signed range */
+#elif CAND == 5
+
 	return ordering(rv) && within_width(rv, m) &&
 		((rv->u.min != 0) || (rv->s.min <= 0));
-#elif CAND == 6		/* full validity + width (the status quo) */
+#elif CAND == 6
 	return ordering(rv) && within_width(rv, m) &&
 		min_agreement(rv, m) && max_agreement(rv, m);
 #else
@@ -98,8 +75,7 @@ int main(void)
 	rd.s.max = nondet_i64();
 
 #ifdef MODE_ESTABLISH
-	/* Does apply_mask hand eval_neg a register satisfying P at msk,
-	 * starting from eval_alu's regs_ok at the register's OWN mask? */
+
 	regmask = nondet_u64();
 	REQUIRE(regmask == _32_BIT_MASK || regmask == _64_BIT_MASK);
 	rd.mask = regmask;
@@ -113,14 +89,13 @@ int main(void)
 #endif
 
 #ifdef MODE_SUFFICE
-	/* Given P, does eval_neg keep both intervals non-empty? */
 	rd.mask = msk;
 	REQUIRE(P(&rd, msk));
 
 	eval_neg(&rd, opsz, msk);
 
-	assert(rd.u.min <= rd.u.max);	/* uord */
-	assert(rd.s.min <= rd.s.max);	/* sord */
+	assert(rd.u.min <= rd.u.max);
+	assert(rd.s.min <= rd.s.max);
 #endif
 	return 0;
 }

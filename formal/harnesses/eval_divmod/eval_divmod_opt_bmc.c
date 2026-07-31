@@ -1,16 +1,4 @@
-/*
- * OP-OPTIMALITY probe for eval_divmod (concrete small regimes).
- * Non-constant u.max: MOD -> min(rd.u.max, rs.u.max-1) (standard remainder bound);
- * DIV -> rd.u.max UNCHANGED (as if dividing by 1 — ignores the minimum divisor).
- * x/y is monotone up in x, down in y, so the tight DIV max is rd.u.max/rs.u.min.
- * Nondet-pair refutation on u.max:  assert result != rd.u.max
- *   SUCCESSFUL => LOOSE (not attained) ; FAILED(CEX) => attained (tight).
- * Regimes (self-optimal, non-negative):
- *   -DR_DIV_LOOSE : DIV rd=[0,100], rs=[2,4]  (code u.max 100; true 100/2=50)
- *   -DR_DIV_TIGHT : DIV rd=[0,100], rs=[1,4]  (divisor can be 1; true 100)
- *   -DR_MOD       : MOD rd=[0,100], rs=[3,7]  (code 6; true 6)
- * -DBMC_32|_64 ; -DBMC_SANITY.  Build with -DALL_FIXES.
- */
+
 #include <assert.h>
 #include "eval_divmod.h"
 
@@ -66,7 +54,7 @@ int main(void)
 	assert(0);
 #endif
 	uint64_t res = (op == BPF_DIV) ? (x / y) : (x % y);
-	assert(res <= rd.u.max);            /* soundness sanity */
-	assert(res != rd.u.max);            /* u.max: SUCCESSFUL=loose, FAILED=attained */
+	assert(res <= rd.u.max);
+	assert(res != rd.u.max);
 	return 0;
 }

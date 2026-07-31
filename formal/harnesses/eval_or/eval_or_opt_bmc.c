@@ -1,16 +1,4 @@
-/*
- * OP-OPTIMALITY probe for eval_or — Category-B test (mirrors
- * eval_and_opt_bmc.c). u.max = eval_uor_max = umax_bits(v1) | umax_bits(v2)
- * (bit-fill each max up to 2^k-1, then OR). Nondet-pair refutation on fixed
- * self-optimal inputs:
- *   assert (a | b) != rd.u.max  -->
- *     SUCCESSFUL => no representable pair attains u.max => LOOSE.
- *     FAILED     => some pair hits u.max => tight for this input.
- * Regimes (self-optimal, non-negative):
- *   -DR_LOOSE : rd=[0,8], rs=[0,4]   (code u.max 15|7=15; true max 12)
- *   -DR_TIGHT : rd=[0,8], rs=[0,8]   (code 15; a=8,b=7 -> 15 attained)
- * -DBMC_32|_64 ; -DBMC_SANITY.  Build with -DALL_FIXES.
- */
+
 #include <assert.h>
 #include "eval_or.h"
 
@@ -59,7 +47,7 @@ int main(void)
 #ifdef BMC_SANITY
 	assert(0);
 #endif
-	assert((a | b) <= rd.u.max);        /* soundness sanity */
-	assert((a | b) != rd.u.max);        /* tightness: SUCCESSFUL=loose, FAILED=attained */
+	assert((a | b) <= rd.u.max);
+	assert((a | b) != rd.u.max);
 	return 0;
 }

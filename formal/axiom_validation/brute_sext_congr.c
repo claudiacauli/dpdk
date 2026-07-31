@@ -1,9 +1,4 @@
-/* Exhaustive check of the mul_sext_congr congruence at widths 4/8/12:
- * the two's-complement argument is width-uniform, so any counterexample
- * class would appear here. Real masks (2^32-1, 2^64-1) proved
- * intractable for ESBMC on both machines (see the tier note on the
- * ESBMC cell in validate_specs_axioms.c) — this enumeration plus the
- * mod-2^w congruence argument is the axiom's validation evidence. */
+
 #include <stdio.h>
 #include <stdint.h>
 int main(void) {

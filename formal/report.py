@@ -102,48 +102,20 @@ OK, FAIL, TIMEOUT, NA, EXPECTED, ERROR = "Y", "X", "T", "-", "!", "E"
 
 WP_PROVERS = "alt-ergo,z3,cvc5"
 
-# Set in main() from the positional mode argument ('fixed' | 'original').
 MODE = "original"
 DEFS = []
 
-# WP parallelism. The driver uses physical cores (verify_all.sh:45-53);
-# frama-c's default is 4, which under-uses the machine on a run whose
-# ceilings are now measured in tens of minutes.
 NPAR = os.cpu_count() or 4
 
-# Split-vs-monolith is a per-goal empirical choice measured in
-# verify_all.sh (see its block comments); this mirrors the driver —
-# keep the two in sync.
-#
-# eval_and is NOT here (2026-07-29 audit): the driver splits only its
-# ssound (SPLIT_PROPS="ssound", verify_all.sh:283) and requires usound
-# MONOLITHIC — "split, part01 never closes even at 600s uncontended"
-# (verify_all.sh:273-277). A blanket entry here silently forced the
-# split on every eval_and prop.
 WP_SPLIT_METHODS = {"eval_lsh", "eval_rsh", "eval_arsh"}
 WP_SPLIT_PROPS = {"eval_add": {"usound"}, "eval_or": {"ssound"},
                   "eval_xor": {"usound", "ssound"},
                   "eval_and": {"ssound"},
-                  # swidth: a cliff goal, monolithic it spins at 900s,
-                  # split per opsz it proves 77/77 (verify_all.sh:377-382)
                   "eval_mul": {"usound", "ssound", "swidth"}}
 
-# Extra frama-c flags the driver passes for specific functions. eval_alu:
-# the evst double indirection makes RTE emit \aligned alarms WP cannot
-# translate ("\aligned not yet implemented"), which degenerate every goal
-# in the TU (verify_all.sh:581-592).
 WP_EXTRA_FLAGS = {"eval_alu": ["-no-warn-unaligned-pointer"],
                   "exec_alu": ["-no-warn-unaligned-pointer"]}
 
-# Properties compile-gated OUT of the default build and proved by their
-# own gated cell instead: -DALL_FIXES -DPROVE_OPTIMALITY. Mirrors the
-# driver's SKIP_PROPS + `wp_pass <m> optimality` cells (verify_all.sh:
-# 282-303 and, 381-410 mul, 480-498 apply_mask). Without this, report.py
-# ran -wp-prop uopt against a TU where the preprocessor had removed the
-# clause — a guaranteed non-green cell for the three hardest operators.
-# The prop list per cell includes the witness stones: a stone assumes
-# only the ones before it, so proving them all keeps every assumed fact
-# a proved one (the driver's rationale, verify_all.sh:292-295).
 OPT_GATED_PROPS = {"uopt", "sopt"}
 OPT_CELLS = {
     "eval_and": (600, ["uopt", "sopt", "uopt_idem_max", "uopt_idem_min",
@@ -156,23 +128,11 @@ OPT_CELLS = {
     "eval_apply_mask": (600, ["uopt", "sopt"]),
 }
 
-# Files that must never enter a BMC translation unit: WP-only harnesses
-# (no main, contract-only) and the composition experiment TUs. Without
-# this every cbmc/esbmc invocation compiles them too (report.py's srcs is
-# the whole corpus), which is at best wasted work and at worst a parse
-# error attributed to the harness under test.
 BMC_EXCLUDE_PAT = ("/exec_alu/", "/compose_try_")
 
-# Bare BMC comment tags that name a PAIR of contract properties. Without
-# the 'width' entry the bare `/* width */` tag used by 12 harnesses
-# matched nothing and their uwidth/swidth BMC verdicts were silently
-# dropped (2026-07-29 audit).
 TAG_EXPAND = {"ord": ("uord", "sord"), "width": ("uwidth", "swidth"),
               "sound": ("usound", "ssound"), "opt": ("uopt", "sopt")}
 
-# Supporting passes the certified driver runs that produce no per-property
-# cell here. Surfaced in the HTML so a green matrix is never mistaken for
-# the whole proof. (label, what it certifies, how to reproduce)
 SUPPORTING_PASSES = [
     ("ACSL @lemma passes", "every lemma assumed inside the WP cells below "
      "(specs.h, shift-opt family, axioms_mul.h)",
@@ -195,11 +155,6 @@ SUPPORTING_PASSES = [
      "tests/consistency/probe_*.c"),
 ]
 
-# Per-method WP -wp-timeout, mirroring verify_all.sh's per-harness ceilings
-# (keep the two in sync). The global --timeout is only the FALLBACK, for a
-# method not listed here and for the CBMC/ESBMC budgets. Without this, the
-# slow WP goals (eval_add/eval_arsh usound ~19m, eval_lsh ~4m, eval_mul ~3m)
-# spuriously time out under the 600s default and disagree with the driver.
 WP_TIMEOUTS = {
     "eval_umax_bound": 20, "eval_smax_bound": 20,
     "eval_max_bound": 20, "eval_fill_max_bound": 20,
@@ -214,20 +169,11 @@ WP_TIMEOUTS = {
     "eval_alu": 1200,
     "eval_arsh": 1800,
     "eval_add": 3000,
-    # 2026-07-29 audit: these three had drifted BELOW the driver's
-    # escalated ceilings (600/300/300), so certified-green goals rendered
-    # as spurious timeouts. eval_lsh usound 10/11 + ssound 06/11 need
-    # 1800 (verify_all.sh:547-551); eval_mul ssound part 18 is red at 300
-    # and proves inside 900 (:366-383); eval_neg ssound is a ~15m search
-    # that proves 1/1 isolated at 1200 (:429-436).
     "eval_lsh": 1800,
     "eval_mul": 900,
     "eval_neg": 1200,
 }
 
-# ---- HTML contract-table presentation (columns = properties) --------------
-# Most-important-first: a reader should see soundness, then range
-# well-formedness, then everything else. Unlisted props append alphabetically.
 PROP_ORDER = [
     "usound", "ssound",
     "uopt", "sopt", "selfopt",
@@ -246,7 +192,6 @@ PROP_ORDER = [
     "smin32", "smax32", "smin64", "smax64",
 ]
 
-# Column groups drive the show/hide toggles; "key" shows by default.
 _KEY = {"usound", "ssound", "uopt", "sopt", "selfopt",
         "uord", "sord", "uwidth", "swidth",
         "agree_min", "agree_max", "valid", "type_ok"}
@@ -254,18 +199,13 @@ _STRUCT = {"unchanged_v", "unchanged_mask", "unchanged_s", "unchanged_u",
            "unchanged_size", "unchanged_buf", "mask_set", "mask_ok", "type_raw",
            "err_iff", "err_frame"}
 
-
 def prop_group(p):
     return "key" if p in _KEY else "struct" if p in _STRUCT else "bounds"
-
 
 def order_props(props):
     rank = {p: i for i, p in enumerate(PROP_ORDER)}
     return sorted(props, key=lambda p: (rank.get(p, len(PROP_ORDER)), p))
 
-
-# One-line gloss shown under each column tag; it wraps, so the column stays
-# narrow. Tags without an entry fall back to just the tag.
 PROP_DESC = {
     "usound": "tracked unsigned range contains the true value, every input",
     "ssound": "tracked signed range contains the true value, every input",
@@ -323,7 +263,6 @@ PROP_DESC = {
     "uor_half64": "64-bit half-width propagates through OR",
 }
 
-# Short gloss for the memory-safety table's category columns.
 CAT_DESC = {
     "division": "no division by zero",
     "signed-overflow": "no signed integer overflow",
@@ -338,7 +277,6 @@ CAT_DESC = {
     "atomicity": "atomicity preserved",
 }
 
-#                 category            CBMC flag                    ESBMC flag                    WP -rte goal name
 CATEGORIES = [
     ("bounds",            "--bounds-check",            "DEFAULT",                    "mem_access"),
     ("pointer",           "--pointer-check",           "DEFAULT",                    "mem_access"),
@@ -355,16 +293,10 @@ CATEGORIES = [
     ("atomicity",         None,                        "--atomicity-check",          None),
 ]
 
-# Categories whose FAIL is a documented design property, not a defect.
 EXPECTED_FAIL = {"unsigned-overflow"}
 
-# (method, prop) -> why this red is expected, filled during an 'original'
-# run so the HTML can explain each '!' cell.
 GATE_OF = {}
-# (table, method, check) proved in the fixed-mode baseline, if one was
-# supplied via --baseline. Empty means "no baseline": reds render plain.
 EXPECTED_SET = set()
-
 
 def expected_red(baseline_jsonl):
     """(method, prop) pairs that are EXPECTED to fail in 'original' mode.
@@ -389,7 +321,6 @@ def expected_red(baseline_jsonl):
                 if any(v == OK for v in triple):
                     good.add((name, m, k))
     return good
-
 
 def sh(cmd, timeout, dry=False):
     """Run cmd (list); return combined output text ('' on dry run).
@@ -425,7 +356,6 @@ def sh(cmd, timeout, dry=False):
             p.kill()
         raise
 
-
 def discover_methods():
     out = []
     for bmc in sorted(glob.glob("harnesses/*/*_bmc.c")):
@@ -435,13 +365,6 @@ def discover_methods():
             out.append((m, impl, bmc))
     return out
 
-
-# WP-ONLY harnesses: contract-only translation units with no BMC harness,
-# which discover_methods() therefore cannot see. exec_alu holds the 48
-# executor-agreement theorems — the result that ties the abstract
-# transformers to the semantics DPDK actually runs — and was invisible in
-# every report until 2026-07-29.
-#   name -> (source, [(prop, gloss)], timeout, one-line description)
 WP_ONLY = {
     "exec_alu": ("harnesses/exec_alu/exec_alu.c",
                  [("agree", "each bpf_exec.c ALU case-arm computes exactly "
@@ -453,7 +376,6 @@ WP_ONLY = {
                  "ALU case-arms"),
 }
 
-
 def run_wp_only(name, prop, timeout, dry):
     """One WP-only harness pass. These have no -wp-fct target (the file is
     a family of small functions), so the property name selects the goals."""
@@ -464,7 +386,6 @@ def run_wp_only(name, prop, timeout, dry):
           ["-wp-prop", prop, src]
     return wp_verdict(sh(cmd, to * 8 + 300, dry))
 
-
 def harness_sources():
     """Implementation TUs for the BMC runs. Excludes _main/_bmc entry
     points and BMC_EXCLUDE_PAT (WP-only harnesses and experiment TUs):
@@ -474,7 +395,6 @@ def harness_sources():
     return sorted(f for f in glob.glob("harnesses/*/*.c")
                   if not f.endswith("_main.c") and not f.endswith("_bmc.c")
                   and not any(pat in "/" + f for pat in BMC_EXCLUDE_PAT))
-
 
 def scan_deps(methods):
     """method -> set of methods its implementation #includes (callees)."""
@@ -489,7 +409,6 @@ def scan_deps(methods):
         deps[m] = ds
     return deps
 
-
 def wp_sources(m, deps, impl_of):
     """Implementation files of m plus its transitive callees — the same
     per-harness translation unit verify_all.sh uses. Keeping this minimal
@@ -503,7 +422,6 @@ def wp_sources(m, deps, impl_of):
         seen.add(cur)
         stack.extend(deps.get(cur, ()))
     return sorted(impl_of[x] for x in seen)
-
 
 def dependency_order(methods):
     """Reorder methods bottom-up with dependency chains kept contiguous:
@@ -546,7 +464,6 @@ def dependency_order(methods):
     by_name = {m[0]: m for m in methods}
     return [by_name[m] for m in foundations + targets]
 
-
 def ensures_of(impl):
     """Named ensures of the contract, DEDUPED. A FIX-gated contract states
     the same ensures name in both #ifdef branches; without the dedup the
@@ -561,7 +478,6 @@ def ensures_of(impl):
             seen.add(m.group(1))
             props.append(m.group(1))
     return props
-
 
 def assert_map(bmc, props):
     """line number -> set of contract property names witnessed there.
@@ -597,9 +513,6 @@ def assert_map(bmc, props):
                 start, pending = None, set()
     return out
 
-
-# ---------------- WP ----------------
-
 def wp_verdict(text, expect_goals=True):
     """Map a frama-c/WP run to a verdict glyph.
 
@@ -625,13 +538,12 @@ def wp_verdict(text, expect_goals=True):
         return TIMEOUT
     m = re.search(r"Proved goals:\s+(\d+)\s*/\s*(\d+)", text)
     if m:
-        if int(m.group(2)) == 0:          # 0/0 — nothing was checked
+        if int(m.group(2)) == 0:
             return ERROR if expect_goals else NA
         if m.group(1) == m.group(2):
             return OK
-        return TIMEOUT     # WP does not refute; anything unproved is unknown
-    return ERROR           # no result line at all: the run did not complete
-
+        return TIMEOUT
+    return ERROR
 
 def wp_cmd(method, prop, srcs, to, defs=None, split=None):
     """The frama-c command line for one property pass, mirroring the
@@ -647,7 +559,6 @@ def wp_cmd(method, prop, srcs, to, defs=None, split=None):
         cmd.append("-wp-split")
     return cmd + ["-wp-prop", prop] + srcs
 
-
 def run_wp(method, prop, srcs, timeout, dry, expect_goals=True):
     """One property pass. PROVE_OPTIMALITY-gated properties get the
     driver's gated build instead of the default one — otherwise the
@@ -655,13 +566,8 @@ def run_wp(method, prop, srcs, timeout, dry, expect_goals=True):
     if prop in OPT_GATED_PROPS and method in OPT_CELLS:
         return run_wp_optimality(method, prop, srcs, dry)
     to = WP_TIMEOUTS.get(method, timeout)
-    # Wall cap: the per-goal ceiling times a generous multiple for a pass
-    # that may schedule many goals, plus start-up. Kept well above to*3 so
-    # a multi-goal pass is not guillotined mid-flight (its partial result
-    # would be discarded entirely).
     return wp_verdict(sh(wp_cmd(method, prop, srcs, to), to * 8 + 300, dry),
                       expect_goals)
-
 
 def run_wp_optimality(method, prop, srcs, dry):
     """uopt/sopt for the gated operators: -DALL_FIXES -DPROVE_OPTIMALITY,
@@ -676,9 +582,6 @@ def run_wp_optimality(method, prop, srcs, dry):
                  defs=["-DALL_FIXES", "-DPROVE_OPTIMALITY"], split=False)
     return wp_verdict(sh(cmd, to * 8 + 300, dry))
 
-
-# ---------------- CBMC ----------------
-
 def run_cbmc_contract(method, bmc, srcs, props, amap, timeout, dry):
     stated = {p for v in amap.values() for p in v}
     text = sh(["cbmc"] + DEFS + [bmc] + srcs, timeout, dry)
@@ -692,12 +595,9 @@ def run_cbmc_contract(method, bmc, srcs, props, amap, timeout, dry):
     for line_no, verdict in re.findall(
             r"\[main\.assertion\.\d+\] line (\d+).*: (SUCCESS|FAILURE)", text):
         for p in amap.get(int(line_no), ()):
-            # FAILURE is sticky: one violated assert for a property is a
-            # counterexample regardless of its other asserts passing.
             if verdict == "FAILURE" or res[p] == NA:
                 res[p] = OK if verdict == "SUCCESS" else FAIL
     return res
-
 
 def run_bmc_flag(tool, flag, bmc, srcs, timeout, dry):
     cmd = [tool] + DEFS + ([flag] if flag and flag != "DEFAULT" else []) \
@@ -712,9 +612,6 @@ def run_bmc_flag(tool, flag, bmc, srcs, timeout, dry):
     if "VERIFICATION FAILED" in text:
         return FAIL
     return TIMEOUT
-
-
-# ---------------- ESBMC contract ----------------
 
 def run_esbmc_contract(method, bmc, srcs, props, amap, timeout, dry):
     """ESBMC contract verdicts, FAIL-CLOSED.
@@ -748,13 +645,10 @@ def run_esbmc_contract(method, bmc, srcs, props, amap, timeout, dry):
             if p in violated:
                 res[p] = FAIL
             elif attributed:
-                # Some violation WAS attributed: properties not implicated
-                # by any cited line genuinely held under --multi-property.
                 res[p] = OK
             else:
-                res[p] = ERROR   # failed, but nothing maps here — unknown
+                res[p] = ERROR
     return res
-
 
 def bmc_sanity(bmc, srcs, timeout, dry):
     """Reachability leg: the harnesses carry `assert(0)` under -DBMC_SANITY
@@ -769,17 +663,13 @@ def bmc_sanity(bmc, srcs, timeout, dry):
     if "REPORT_PY" in text:
         return ERROR
     if "VERIFICATION FAILED" in text:
-        return OK        # the unreachable-assert fired: preconditions live
+        return OK
     if "VERIFICATION SUCCESSFUL" in text:
-        return FAIL      # nothing reached the assert: harness is vacuous
+        return FAIL
     return ERROR
-
-
-# ---------------- render ----------------
 
 def cell(c, e, w):
     return f"{c}·{e}·{w}"
-
 
 def table(header, rows):
     line = "| " + " | ".join(header) + " |"
@@ -787,22 +677,18 @@ def table(header, rows):
     body = ["| " + " | ".join(r) + " |" for r in rows]
     return "\n".join([line, sep] + body)
 
-
 def tool_version(cmd):
     out = sh(cmd, 30)
     return out.strip().splitlines()[0] if out and "REPORT_PY" not in out else "not found"
-
 
 LEGEND = ("Cell order: **CBMC · ESBMC · WP**. "
           "Glyphs: Y proved, X violated (counterexample), T timeout/unknown, "
           "! fails by design (intentional wraparound), "
           "E tool/config error (the check did not run), - not applicable.")
 
-
 def platform_tag():
     return {"Darwin": "macos", "Linux": "linux"}.get(
         platform.system(), platform.system().lower())
-
 
 def git_provenance():
     """branch @ short-hash (+dirty) of the tree that produced the run.
@@ -817,7 +703,6 @@ def git_provenance():
     branch = g("rev-parse", "--abbrev-ref", "HEAD") or "?"
     dirty = " +dirty" if g("status", "--porcelain") else ""
     return f"{branch} @ {head}{dirty}"
-
 
 def tally(contract, safety, cats):
     """Aggregate counts for the summary banner: per engine and overall,
@@ -842,7 +727,6 @@ def tally(contract, safety, cats):
     run = sum(p["run"] for p in per.values())
     return per, good, run, errors
 
-
 def environment():
     return [(name, tool_version(cmd)) for name, cmd in (
         ("frama-c", ["frama-c", "-version"]),
@@ -851,7 +735,6 @@ def environment():
         ("z3", ["z3", "--version"]),
         ("alt-ergo", ["alt-ergo", "--version"]),
         ("host", ["uname", "-sm"]))]
-
 
 def render_markdown(all_props, order, contract, safety, env, stamp="",
                     tag="", scope="full run", prov=""):
@@ -881,7 +764,6 @@ def render_markdown(all_props, order, contract, safety, env, stamp="",
         "## Environment", "\n".join(f"- {k}: {v}" for k, v in env),
     ]) + "\n"
 
-
 def section_bands(order, deps_map):
     """Label the first method of each structural section. `order` is the
     dependency order already computed by dependency_order(): foundations
@@ -896,7 +778,6 @@ def section_bands(order, deps_map):
             seen_target = True
     return bands
 
-
 class Sinks:
     """Stream results as they land, so `tail -f` shows live progress and an
     interrupted run still leaves valid partial files. Two granularities:
@@ -909,8 +790,6 @@ class Sinks:
         self.csv = csv.writer(self.csv_f)
         self.csv_row(["method", "table", "check", "cbmc", "esbmc", "wp"])
         self.jsonl_f = open(base + ".jsonl", "w")
-        # scope/git in the meta record so --render-from reproduces the
-        # partial-run banner and provenance without guessing.
         self.event({"meta": True, "stamp": stamp, "platform": tag,
                     "mode": MODE, "env": dict(env), "scope": scope,
                     "git": prov})
@@ -934,14 +813,11 @@ class Sinks:
         self.csv_f.close()
         self.jsonl_f.close()
 
-
 def timed(fn, *a):
     t0 = time.time()
     return fn(*a), round(time.time() - t0, 1)
 
-
 ENG_IDX = {"cbmc": 0, "esbmc": 1, "wp": 2}
-
 
 def load_jsonl(path):
     """Rebuild (meta, all_props, order, contract, safety, timings) from a
@@ -961,7 +837,7 @@ def load_jsonl(path):
         try:
             rec = json.loads(line)
         except json.JSONDecodeError:
-            continue          # a run killed mid-write leaves a partial line
+            continue
         if rec.get("meta"):
             meta = rec
             continue
@@ -971,7 +847,7 @@ def load_jsonl(path):
         eng, verdict = rec["engine"], rec["verdict"]
         timings[(m, tbl, chk, eng)] = rec.get("seconds", 0.0)
         if tbl == "sanity":
-            continue          # recorded, but not a matrix cell
+            continue
         if m not in order:
             order.append(m)
         store = contract if tbl == "contract" else safety
@@ -987,7 +863,6 @@ def load_jsonl(path):
         for c_ in (c[0] for c in CATEGORIES):
             safety[m].setdefault(c_, (NA, NA, NA))
     return meta, all_props, order, contract, safety, timings
-
 
 class Resume:
     """Verdicts carried over from a previous run's jsonl.
@@ -1044,7 +919,6 @@ class Resume:
             self.reused += 1
         return v
 
-
 def write_delta(path, a_path, b_path):
     """The fixed-vs-original delta: only the cells whose verdict differs.
     In this project that difference IS the deliverable — each row is a
@@ -1094,25 +968,19 @@ def write_delta(path, a_path, b_path):
         f.write(doc)
     return len(rows)
 
-
 COLOR = {OK: "#1a7f37", FAIL: "#cf222e", TIMEOUT: "#bf8700",
          EXPECTED: "#8250df", NA: "#8b949e", ERROR: "#6e2f8e"}
 WORD = {OK: "proved", FAIL: "violated (counterexample)",
         TIMEOUT: "timeout / unknown", EXPECTED: "fails by design",
         NA: "not applicable", ERROR: "tool/config error — check did not run"}
-# Verdicts that mean "a check really happened and passed" — the numerator
-# of every count shown in the summary banner.
 GOOD = {OK, EXPECTED}
 
-
 TOOLS = (("cbmc", "CBMC"), ("esbmc", "ESBMC"), ("wp", "WP"))
-
 
 def _colcls(k, group):
     """CSS classes for column k: c-<k> (per-column) + g-<group> (toggle)."""
     g = group(k) if group else ""
     return "c-%s%s" % (k, (" g-%s" % g) if g else "")
-
 
 def html_table(keys, order, data, default=None, descs=None, group=None,
                bands=None):
@@ -1151,7 +1019,6 @@ def html_table(keys, order, data, default=None, descs=None, group=None,
                          % (_colcls(k, group),
                             (" title='expected: %s'" % gate) if gate else "",
                             spans))
-        # data-state drives the failures-first filter without any JS state
         state = "clean" if good == run else "dirty"
         rows.append("<tr data-state='%s'><td class='m'>%s</td>%s"
                     "<td class='n'>%d/%d</td></tr>"
@@ -1159,7 +1026,6 @@ def html_table(keys, order, data, default=None, descs=None, group=None,
     return ("<table><tr><th class='m'>method</th>%s"
             "<th class='n' title='checks passed / checks run in this row'>"
             "row</th></tr>%s</table>" % ("".join(head), "".join(rows)))
-
 
 def html_legend():
     """A PERMANENT legend. Tooltips do not survive a screenshot, and every
@@ -1170,7 +1036,6 @@ def html_legend():
         for g in (OK, FAIL, TIMEOUT, EXPECTED, ERROR, NA))
     return ("<div class='legend'><b>Each cell:</b> three independent "
             "engines, in order <b>CBMC · ESBMC · WP</b>. %s</div>" % items)
-
 
 def html_banner(stamp, tag, env, per, good, run, errors, scope, prov):
     """The one-shot summary: what was checked, how much passed, on which
@@ -1190,7 +1055,6 @@ def html_banner(stamp, tag, env, per, good, run, errors, scope, prov):
         "<div class='sub prov'>%s</div>"
         "</div>" % (cls, good, run, pct, engines, err, MODE, stamp, tag,
                     scope, prov))
-
 
 def margin_rows(timings, fallback_timeout):
     """WP cells ranked by how close their wall time ran to the configured
@@ -1213,7 +1077,6 @@ def margin_rows(timings, fallback_timeout):
         rows.append((secs / ceiling, m, tbl, chk, secs, ceiling))
     rows.sort(reverse=True)
     return rows
-
 
 def html_margins(timings, fallback_timeout, limit=15):
     rows = margin_rows(timings, fallback_timeout)
@@ -1239,7 +1102,6 @@ def html_margins(timings, fallback_timeout, limit=15):
         "<th>elapsed</th><th>ceiling</th><th>margin used</th></tr>%s</table>"
         % (hot, len(rows), body))
 
-
 def html_supporting():
     """Everything the driver proves that has no cell in these tables. A
     green matrix without this section over-claims by omission."""
@@ -1254,7 +1116,6 @@ def html_supporting():
             "<th class='l'>what it certifies</th>"
             "<th class='l'>reproduce</th></tr>%s</table>" % rows)
 
-
 def write_html(path, all_props, order, contract, safety, env, stamp, tag,
                scope="full run", prov="", bands=None, timings=None,
                fallback_timeout=600):
@@ -1262,19 +1123,14 @@ def write_html(path, all_props, order, contract, safety, env, stamp, tag,
     per, good, run, errors = tally(contract, safety, cats)
     style = (
         "body{font:14px -apple-system,sans-serif;margin:0 2em 2em;color:#1f2328}"
-        # fixed layout so every property column is the same width regardless
-        # of its header text; the width fits the three boxes and the header
-        # tag/description wrap into it.
         "table{border-collapse:collapse;margin:1em 0;table-layout:fixed}"
         "td,th{border:1px solid #d0d7de;padding:3px 4px;text-align:center}"
-        "td{white-space:nowrap}"          # boxes stay on one row
+        "td{white-space:nowrap}"
         "th{background:#f6f8fa;vertical-align:top;white-space:normal;"
         "overflow-wrap:anywhere;position:sticky;top:var(--stick);z-index:2}"
         "th.c-bounds,th.c-pointer,th[class*=c-]{width:4.8em}"
         "th.m,td.m{text-align:left;font-family:monospace;white-space:nowrap;"
         "width:13em}"
-        # method column sticks horizontally so a wide table stays readable
-        # while scrolled — and so a crop keeps its row labels.
         "th.m{left:0;z-index:3}td.m{position:sticky;left:0;background:#fff;"
         "z-index:1}"
         "th.n,td.n{width:4.2em;font:600 11px monospace;color:#57606a}"
@@ -1293,11 +1149,9 @@ def write_html(path, all_props, order, contract, safety, env, stamp, tag,
         ".controls b{margin-left:14px}.controls b:first-child{margin-left:0}"
         ".controls button{margin:0 3px;cursor:pointer;padding:2px 8px}"
         ".controls label{margin:0 4px;white-space:nowrap;cursor:pointer}"
-        # permanent legend — screenshots lose tooltips
         ".legend{font-size:12px;color:#57606a;padding:8px 0;line-height:2}"
         ".legend .li{margin-right:14px;white-space:nowrap}"
         ".legend .li .v{margin-right:4px}"
-        # summary banner: the single screenshot that states the result
         ".banner{border:1px solid #d0d7de;border-left-width:6px;"
         "border-radius:6px;padding:12px 16px;margin:14px 0;background:#f6f8fa}"
         ".banner.ok{border-left-color:#1a7f37}"
@@ -1313,13 +1167,11 @@ def write_html(path, all_props, order, contract, safety, env, stamp, tag,
         ".note{font-weight:400;font-size:12px;color:#57606a}"
         "td.hot{color:#bf8700;font-weight:600}"
         "h2{margin-top:1.6em}"
-        # show/hide rules driven by <body> classes
         "body.h-key .g-key{display:none}body.h-struct .g-struct{display:none}"
         "body.h-bounds .g-bounds{display:none}"
         "body.h-cbmc .t-cbmc{display:none}body.h-esbmc .t-esbmc{display:none}"
         "body.h-wp .t-wp{display:none}"
         "body.only-fail tr[data-state=clean]{display:none}"
-        # slide mode: bigger glyphs and type for projector screenshots
         "body.slide{font-size:17px}"
         "body.slide .v{min-width:1.5em;font-size:15px;padding:3px 5px}"
         "body.slide th .tag{font-size:14px}"
@@ -1359,8 +1211,6 @@ def write_html(path, all_props, order, contract, safety, env, stamp, tag,
         "b.toggle('h-esbmc',!ck('t-esbmc'));b.toggle('h-wp',!ck('t-wp'));"
         "b.toggle('only-fail',ck('only-fail'));b.toggle('slide',ck('slide'));"
         "stick()}"
-        # the sticky header must sit exactly below the sticky control bar,
-        # whose height changes with slide mode and window width
         "function stick(){var c=document.querySelector('.controls');"
         "document.documentElement.style.setProperty('--stick',"
         "(c?c.offsetHeight:0)+'px')}"
@@ -1415,7 +1265,6 @@ def write_html(path, all_props, order, contract, safety, env, stamp, tag,
         "</ul></body>"])
     with open(path, "w") as f:
         f.write(doc)
-
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[1])
@@ -1481,8 +1330,6 @@ def main():
         stamp = meta.get("stamp", "?")
         tag = meta.get("platform", platform_tag())
         env = list(meta.get("env", {}).items())
-        # A jsonl written before scope/git were recorded cannot claim to be
-        # a full run — say so rather than implying completeness.
         n_disc = len(discover_methods()) + len(WP_ONLY)
         scope = meta.get("scope") or (
             "scope not recorded in this jsonl (pre-2026-07-29 run); it "
@@ -1503,8 +1350,6 @@ def main():
               file=sys.stderr)
         return
 
-    # deps/impl_of over ALL discovered methods, so wp_sources() can close
-    # over callees even when --methods filters the iteration set.
     all_methods = discover_methods()
     deps = scan_deps(all_methods)
     impl_of = {m: impl for m, impl, _ in all_methods}
@@ -1523,8 +1368,6 @@ def main():
     base = os.path.join(args.outdir, f"{stamp}_{tag}_{MODE}")
     env = environment()
     prov = git_provenance()
-    # Run scope is recorded in the artifacts and gates the latest_* copy:
-    # a subset run must never masquerade as the corpus-wide result.
     limits = []
     if args.methods:
         limits.append("%d of %d methods (--methods)"
@@ -1534,17 +1377,12 @@ def main():
     if args.skip_bmc:
         limits.append("CBMC/ESBMC skipped")
     resume = Resume(args.resume, MODE)
-    # Coverage limits (which gate the latest_* copy) are kept separate from
-    # provenance notes: a RESUMED run still covers the whole corpus, so it
-    # is not "partial" — it just needs to say that some verdicts were
-    # computed earlier.
     notes = []
     if args.resume:
         notes.append("resumed from %s (%d cells on file)"
                      % (os.path.basename(args.resume), len(resume.cells)))
     partial = bool(limits)
     scope = "; ".join(limits + notes) if (limits or notes) else "full run"
-    # Timings of THIS run, plus any carried over, feed the margin table.
     timings = dict(resume.timings)
     sink = None
     if not args.dry_run:
@@ -1568,8 +1406,6 @@ def main():
             c, c_s = {p: NA for p in props}, 0.0
             e, e_s = {p: NA for p in props}, 0.0
         else:
-            # BMC contract runs yield every property in ONE invocation, so
-            # they are carried over only as a complete set.
             c = resume.all_props(m, "contract", props, "cbmc")
             if c is not None:
                 c_s = resume.seconds(m, "contract", props[0], "cbmc")
@@ -1586,8 +1422,6 @@ def main():
                 print(f"[{m}] contract: ESBMC", file=sys.stderr)
                 e, e_s = timed(run_esbmc_contract, m, bmc, srcs, props, amap,
                                args.timeout, args.dry_run)
-            # Reachability leg: if the harness's preconditions are
-            # contradictory, every green BMC verdict above is vacuous.
             sane = resume.one(m, "sanity", "bmc_reachable", "cbmc")
             if sane is not None:
                 sane_s = resume.seconds(m, "sanity", "bmc_reachable", "cbmc")
@@ -1616,10 +1450,6 @@ def main():
                 w[p], w_s[p] = timed(run_wp, m, p, wsrcs, args.timeout,
                                      args.dry_run)
             timings[(m, "contract", p, "wp")] = w_s[p]
-        # 'original' mode with a fixed-mode baseline: a property the FIXED
-        # build proves but the upstream port does not is a DOCUMENTED
-        # defect, not a regression. Mark it '!' so the red map separates
-        # "the bug we are reporting" from "something is wrong".
         def mark(p, v):
             if MODE == "original" and v == FAIL and \
                     ("contract", m, p) in EXPECTED_SET:
@@ -1663,8 +1493,6 @@ def main():
                                  args.timeout, args.dry_run)
             else:
                 ev, ev_s = NA, 0.0
-            # 'bounds' and 'pointer' are BOTH WP's mem_access goal: run it
-            # once per method, not once per category.
             cached_w = resume.one(m, "memsafety", cat, "wp")
             if args.skip_wp or not wgoal:
                 wv, wv_s = NA, 0.0
@@ -1673,9 +1501,6 @@ def main():
             elif wgoal in wp_goal_cache:
                 wv, wv_s = wp_goal_cache[wgoal][0], 0.0
             else:
-                # expect_goals=False: an -rte category with no goals means
-                # the function has no such operation (no division, no
-                # shift) — that is 'not applicable', not an error.
                 wv, wv_s = timed(run_wp, m, wgoal, wsrcs, args.timeout,
                                  args.dry_run, False)
                 wp_goal_cache[wgoal] = (wv, wv_s)
@@ -1690,8 +1515,6 @@ def main():
                 sink.atomic(m, "memsafety", cat, "wp", wv, wv_s)
                 sink.csv_row([m, "memsafety", cat, *safety[m][cat]])
 
-    # WP-only harnesses (no BMC counterpart): appended as their own rows so
-    # the executor-agreement track is visible in the matrix.
     for name, (src, cell_props, to, _desc) in WP_ONLY.items():
         if args.methods and name not in args.methods.split(","):
             continue
@@ -1732,10 +1555,6 @@ def main():
                                 stamp, tag, scope, prov))
     write_html(base + ".html", all_props, order, contract, safety, env,
                stamp, tag, scope, prov, bands, timings, args.timeout)
-    # latest_<mode>.* is the artifact people link to and screenshot, so a
-    # PARTIAL run must not overwrite it (that is exactly how the shipped
-    # latest_fixed.html became a one-method file presented as the full
-    # report). Partial runs land under latest_partial_<mode>.* instead.
     prefix = "latest_partial_" if partial else "latest_"
     for ext in (".md", ".csv", ".jsonl", ".html"):
         shutil.copyfile(base + ext,
@@ -1748,7 +1567,6 @@ def main():
               file=sys.stderr)
     print(f"wrote {base}.{{md,csv,jsonl,html}} + {prefix}{MODE}.* "
           f"in {args.outdir}/", file=sys.stderr)
-
 
 if __name__ == "__main__":
     main()

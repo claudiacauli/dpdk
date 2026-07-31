@@ -1,29 +1,4 @@
-/*
- * OP-OPTIMALITY VERIFIER for eval_add over FULLY NONDET input.
- *
- * add is binary and (x,y)->(x+y)&msk is NOT injective, so we can't use neg's
- * unique-preimage trick. Instead CONSTRUCT-AND-CHECK the corner-pair witness:
- * for a monotone sum the extreme output comes from the extreme input corners,
- * so e.g. u.max is attained by (od.u.max, os.u.max). We assert that pair is
- * representable in BOTH operands AND produces the output endpoint:
- *
- *     VERIFICATION SUCCESSFUL => the corner pair attains the endpoint for EVERY
- *                                valid (self-optimal) input pair => tight.
- *     VERIFICATION FAILED     => a CEX input where it doesn't (expected when the
- *                                overflow-widening fired and reset the track to
- *                                full width; the trace shows the input).
- *
- * Self-optimality of BOTH operands makes the corners representable, so a FAILED result
- * isolates exactly the overflow/widening cases (not a bad witness choice).
- *
- * Cell flags: -DBMC_UMAX|_UMIN|_SMAX|_SMIN, -DBMC_32|_64,
- *   -DBMC_NOSELFOPT drops input self-optimality (to check it is actually needed),
- *   -DBMC_NOOVFL requires the relevant corner sum not to wrap (isolates the
- *      no-overflow regime, where we expect tightness),
- *   -DBMC_SANITY asserts(0) after the REQUIREs (must be VIOLATED).
- * Build with -DALL_FIXES.
- * Dep closure: eval_add.c eval_umax_bound.c eval_smax_bound.c eval_fill_max_bound.c
- */
+
 #include <assert.h>
 #include "eval_add.h"
 
@@ -78,13 +53,11 @@ int main(void)
 #ifndef BMC_NOSELFOPT
 	REQUIRE(self_optimal(&rd, msk) && self_optimal(&rs, msk));
 #else
-	/* still need non-empty operands for a witness to exist */
 	{ uint64_t wa = nondet_u64(), wb = nondet_u64();
 	  REQUIRE(wa <= msk && repr(&rd, wa, msk));
 	  REQUIRE(wb <= msk && repr(&rs, wb, msk)); }
 #endif
 
-	/* corner-pair witness for the selected endpoint */
 	uint64_t wx, wy;
 #if defined(BMC_UMAX)
 	wx = rd.u.max; wy = rs.u.max;
@@ -99,14 +72,13 @@ int main(void)
 #endif
 
 #ifdef BMC_NOOVFL
-	/* No overflow on the WHOLE relevant track (the widening resets the entire
-	 * track, not one endpoint). Overflow-safe formulations. */
+
   #if defined(BMC_UMAX) || defined(BMC_UMIN)
-	REQUIRE(rd.u.max <= msk - rs.u.max);                 /* no unsigned wrap */
+	REQUIRE(rd.u.max <= msk - rs.u.max);
   #else
 	{ int64_t smax_w = (int64_t)(msk >> 1), smin_w = -(int64_t)(msk >> 1) - 1;
-	  REQUIRE(rs.s.max <= 0 || rd.s.max <= smax_w - rs.s.max);   /* sum.max <= smax_w */
-	  REQUIRE(rs.s.min >= 0 || rd.s.min >= smin_w - rs.s.min); } /* sum.min >= smin_w */
+	  REQUIRE(rs.s.max <= 0 || rd.s.max <= smax_w - rs.s.max);
+	  REQUIRE(rs.s.min >= 0 || rd.s.min >= smin_w - rs.s.min); }
   #endif
 #endif
 
@@ -119,7 +91,6 @@ int main(void)
 
 	uint64_t res = (wx + wy) & msk;
 
-	/* the corner pair is representable (self-optimality) and attains the endpoint */
 	assert(repr(&od, wx, msk) && repr(&os, wy, msk));
 #if defined(BMC_UMAX)
 	assert(res == rd.u.max);

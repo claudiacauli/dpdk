@@ -1,20 +1,4 @@
-/*
- * OP-OPTIMALITY VERIFIER for eval_sub over FULLY NONDET input.
- * Same construct-and-check design as eval_add_opt_bmc.c, but subtraction is
- * ANTI-monotone in the subtrahend, so the corner-pair witnesses cross:
- *   u.max  <- (rd.u.max, rs.u.min)      u.min  <- (rd.u.min, rs.u.max)
- *   s.max  <- (rd.s.max, rs.s.min)      s.min  <- (rd.s.min, rs.s.max)
- * result value = (x - y) & msk (== wrap_diff(x-y, msk)).
- *
- *   VERIFICATION SUCCESSFUL => corner pair attains the endpoint for every valid
- *                              (self-optimal) input => tight.
- *   VERIFICATION FAILED     => CEX (expected under overflow-widening, and under
- *                              the spurious signed widening this study targets).
- *
- * Flags: -DBMC_UMAX|_UMIN|_SMAX|_SMIN, -DBMC_32|_64, -DBMC_NOSELFOPT,
- *        -DBMC_NOOVFL (track-wide no-overflow), -DBMC_SANITY.
- * Build with -DALL_FIXES [-DFIX_SUB_SIGNED_OVFL].
- */
+
 #include <assert.h>
 #include "eval_sub.h"
 
@@ -87,7 +71,7 @@ int main(void)
 
 #ifdef BMC_NOOVFL
   #if defined(BMC_UMAX) || defined(BMC_UMIN)
-	REQUIRE(rd.u.min >= rs.u.max);                        /* no unsigned underflow */
+	REQUIRE(rd.u.min >= rs.u.max);
   #else
 	{ __int128 smax_w = (int64_t)(msk >> 1), smin_w = -(int64_t)(msk >> 1) - 1;
 	  __int128 dmin = (__int128)rd.s.min - (__int128)rs.s.max;

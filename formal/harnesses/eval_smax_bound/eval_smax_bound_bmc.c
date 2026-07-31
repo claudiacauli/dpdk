@@ -1,11 +1,4 @@
-/*
- * BMC harness for eval_smax_bound (mirrors the ACSL contract in
- * eval_smax_bound.c). Loop-free, full-width symbolic inputs: complete.
- *
- * Run from this directory:
- *   cbmc  -DALL_FIXES eval_smax_bound_bmc.c eval_smax_bound.c
- *   esbmc -DALL_FIXES eval_smax_bound_bmc.c eval_smax_bound.c
- */
+
 #include <assert.h>
 #include "eval_smax_bound.h"
 
@@ -31,24 +24,23 @@ int main(void)
 	uint64_t mask = nondet_u64();
 	REQUIRE(mask == _32_BIT_MASK || mask == _64_BIT_MASK);
 
-	/* \old(*rv) */
 	const struct bpf_reg_val old = rv;
 
 	eval_smax_bound(&rv, mask);
 
 	assert(mask != _32_BIT_MASK ||
-		(rv.s.min == INT32_MIN && rv.s.max == INT32_MAX)); /* sfull32 */
+		(rv.s.min == INT32_MIN && rv.s.max == INT32_MAX));
 	assert(mask != _64_BIT_MASK ||
-		(rv.s.min == INT64_MIN && rv.s.max == INT64_MAX)); /* sfull64 */
+		(rv.s.min == INT64_MIN && rv.s.max == INT64_MAX));
 	assert(rv.u.min == old.u.min &&
-		rv.u.max == old.u.max);                         /* unchanged_u */
-	assert(rv.mask == old.mask);                            /* unchanged_mask */
+		rv.u.max == old.u.max);
+	assert(rv.mask == old.mask);
 	assert(rv.v.type == old.v.type &&
 		rv.v.size == old.v.size &&
-		rv.v.buf_size == old.v.buf_size);               /* unchanged_v */
-	assert(rv.s.min <= rv.s.max);                           /* sord */
+		rv.v.buf_size == old.v.buf_size);
+	assert(rv.s.min <= rv.s.max);
 	assert(-(int64_t)(mask >> 1) - 1 <= rv.s.min &&
-		rv.s.max <= (int64_t)(mask >> 1));              /* swidth */
+		rv.s.max <= (int64_t)(mask >> 1));
 
 #ifdef BMC_SANITY
 	assert(0);

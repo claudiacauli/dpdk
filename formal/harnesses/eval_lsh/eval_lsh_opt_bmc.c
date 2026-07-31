@@ -1,17 +1,4 @@
-/*
- * OP-OPTIMALITY VERIFIER for eval_lsh over FULLY NONDET input.
- * lsh shifts each value x in rd by an amount sh in rs->u; x<<sh is monotone in
- * BOTH, so the extreme output is the extreme (value, shift) corner:
- *   u.max <- (rd.u.max, rs.u.max)   u.min <- (rd.u.min, rs.u.min)
- *   s.max <- (rd.s.max, rs.u.max)   s.min <- (rd.s.min, rs.u.min)   (s uses rs->u shift)
- * Construct-and-check: assert the corner is representable AND attains the endpoint.
- *   SUCCESSFUL => tight for every self-optimal no-widen input ; FAILED => CEX.
- *
- * NOWIDEN isolates the non-widening path (the widening branches reset to full
- * width via eval_max/umax/smax_bound). LEN2MASK(opsz-sh) == (msk >> sh).
- * Flags: -DBMC_UMAX|_UMIN|_SMAX|_SMIN, -DBMC_32|_64, -DBMC_NOSELFOPT, -DBMC_SANITY.
- * Build with -DALL_FIXES.
- */
+
 #include <assert.h>
 #include "eval_lsh.h"
 
@@ -67,11 +54,9 @@ int main(void)
 	  REQUIRE(wb <= msk && repr(&rs, wb, msk)); }
 #endif
 
-	/* no-widen path: shift < width and no unsigned overflow */
 	REQUIRE(rs.u.max < opsz);
 	REQUIRE(rd.u.max <= (msk >> rs.u.max));
 #if defined(BMC_SMAX) || defined(BMC_SMIN)
-	/* additionally the signed positivity check must NOT widen */
 	REQUIRE(rd.s.min >= 0);
 	{ uint64_t thr = (rs.u.max == opsz - 1) ? 0 : (msk >> (rs.u.max + 1));
 	  REQUIRE((uint64_t)rd.s.max < thr); }
@@ -97,7 +82,6 @@ int main(void)
 	eval_lsh(&rd, &rs, opsz, msk);
 
 	uint64_t res = (xv << sh) & msk;
-	/* xv representable in rd; sh representable in rs (as an unsigned value) */
 	assert(repr(&od, xv, msk) && repr(&os, sh, msk));
 #if defined(BMC_UMAX)
 	assert(res == rd.u.max);

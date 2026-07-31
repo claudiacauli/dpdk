@@ -1,20 +1,4 @@
-/*
- * OP-OPTIMALITY probe for eval_mul (nonlinear -> concrete small regimes,
- * like the bitwise ops). mul's non-widen path is corner-based:
- *   both-nonneg, no overflow: u.max=rd.u.max*rs.u.max, u.min=rd.u.min*rs.u.min
- *   (same for s). Products are monotone on non-negatives, so the corners give
- *   the extremes -> should be tight. But mul only handles BOTH-NONNEG for the
- *   signed track; mixed signs / overflow WIDEN (loose).
- *
- * R_NONNEG: rd=[2,3], rs=[4,5]  (small, both non-neg; corner products fit)
- *   nondet-pair refutation per endpoint:
- *     assert result != endpoint -> SUCCESSFUL=loose, FAILED(CEX)=attained/tight.
- * R_MIXED_OUT: rd s=[-3,-2] (neg), rs s=[2,3] -> signed track WIDENS; we just
- *   assert the output s.max == msk>>1 (INT_MAX) to show it widened (true max -4).
- *
- * Flags: -DBMC_UMAX|_UMIN|_SMAX|_SMIN (R_NONNEG); -DR_MIXED_OUT; -DBMC_32|_64;
- *        -DBMC_SANITY.  Build with -DALL_FIXES.
- */
+
 #include <assert.h>
 #include "eval_mul.h"
 
@@ -45,15 +29,12 @@ int main(void)
 	rd.mask = rs.mask = msk;
 
 #ifdef R_MIXED_OUT
-	/* rd negative, rs positive: signed multiply, both-nonneg guard fails */
 	rd.u.min = (msk - 2); rd.u.max = (msk - 1); rd.s.min = -3; rd.s.max = -2;
 	rs.u.min = 2; rs.u.max = 3; rs.s.min = 2; rs.s.max = 3;
 	eval_mul(&rd, &rs, opsz, msk);
-	/* true signed product range is [-9,-4]; show the code widened s.max to INT_MAX */
-	assert(rd.s.max == (int64_t)(msk >> 1));   /* holds => widened => LOOSE */
+	assert(rd.s.max == (int64_t)(msk >> 1));
 	return 0;
 #else
-	/* R_NONNEG small self-optimal both-non-negative */
 	rd.u.min = 2; rd.u.max = 3; rd.s.min = 2; rd.s.max = 3;
 	rs.u.min = 4; rs.u.max = 5; rs.s.min = 4; rs.s.max = 5;
 
@@ -68,7 +49,7 @@ int main(void)
   #endif
 	uint64_t ures = (a * b) & msk;
 	int64_t  sres = tos(ures, msk);
-	assert(ures <= rd.u.max);              /* soundness sanity */
+	assert(ures <= rd.u.max);
   #if defined(BMC_UMAX)
 	assert(ures != rd.u.max);
   #elif defined(BMC_UMIN)

@@ -1,14 +1,4 @@
-/*
- * Intersection-soundness BMC harness for eval_neg (unary), matching the
- * declared WP contract (eval_neg.h bin_witness form): precondition is
- * is_scalar + range_ORDERING + range_within_width (agreement DROPPED); the
- * witness is a pattern in the unsigned range whose signed reading lies in the
- * signed range. Confirms the intersection-form usound/ssound WP contracts are
- * TRUE (BMC).
- *   default SUCCESSFUL  => intersection soundness holds.
- *   default FAILED (CEX) => the contract is wrong.
- *   -DBMC_SANITY assert(0) must be VIOLATED => asserts reachable (non-vacuous).
- */
+
 #include <assert.h>
 #include "eval_neg.h"
 
@@ -66,33 +56,29 @@ int main(void)
 	REQUIRE(msk != _32_BIT_MASK || opsz == 32);
 	REQUIRE(msk != _64_BIT_MASK || opsz == 64);
 
-	/* requires: is_scalar + range_ORDERING (agreement DROPPED) + within_width */
 	REQUIRE(is_scalar(rd.v.type));
 	REQUIRE(range_ordering(&rd));
 	REQUIRE(range_within_width(&rd, msk));
 
 	const struct bpf_reg_val od = rd;
 
-	/* INTERSECTION witness: a pattern in BOTH tracks */
 	uint64_t px = nondet_u64();
 	REQUIRE(od.u.min <= px && px <= od.u.max);
 	REQUIRE(od.s.min <= tos(px, msk) && tos(px, msk) <= od.s.max);
 
 	eval_neg(&rd, opsz, msk);
 
-	assert(range_ordering(&rd));                            /* ord */
-	assert(range_within_width(&rd, msk));                  /* width */
+	assert(range_ordering(&rd));
+	assert(range_within_width(&rd, msk));
 
-	/* machine negation of the w-bit pattern: (0 - x) mod 2^64, masked to w
-	 * bits (== neg_pat(x, msk); cross-checks the spec against the machine) */
 	uint64_t ures = (0 - px) & msk;
-	assert(rd.u.min <= ures && ures <= rd.u.max);          /* usound (isect) */
+	assert(rd.u.min <= ures && ures <= rd.u.max);
 
 	int64_t s_val = tos(ures, msk);
-	assert(rd.s.min <= s_val && s_val <= rd.s.max);        /* ssound (isect) */
+	assert(rd.s.min <= s_val && s_val <= rd.s.max);
 
 #ifdef BMC_SANITY
-	assert(0);   /* must FAIL: proves the asserts are reachable */
+	assert(0);
 #endif
 	return 0;
 }

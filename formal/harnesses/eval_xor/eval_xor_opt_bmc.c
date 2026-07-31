@@ -1,12 +1,4 @@
-/*
- * OP-OPTIMALITY probe for eval_xor — Category-B test. XOR reuses the OR
- * bit-fill bound (a^b <= a|b), so u.max = eval_uor_max(rd.u.max, rs.u.max).
- * Nondet-pair refutation on fixed self-optimal inputs:
- *   assert (a ^ b) != rd.u.max  -->  SUCCESSFUL => LOOSE, FAILED => attained.
- * Regimes: -DR_LOOSE rd=[0,8],rs=[0,4] (code 15, true max(a^b)=12);
- *          -DR_TIGHT rd=[0,8],rs=[0,8] (code 15, a=8^b=7 -> 15).
- * -DBMC_32|_64 ; -DBMC_SANITY.  Build with -DALL_FIXES.
- */
+
 #include <assert.h>
 #include "eval_xor.h"
 
@@ -55,7 +47,7 @@ int main(void)
 #ifdef BMC_SANITY
 	assert(0);
 #endif
-	assert((a ^ b) <= rd.u.max);        /* soundness sanity */
-	assert((a ^ b) != rd.u.max);        /* tightness: SUCCESSFUL=loose, FAILED=attained */
+	assert((a ^ b) <= rd.u.max);
+	assert((a ^ b) != rd.u.max);
 	return 0;
 }

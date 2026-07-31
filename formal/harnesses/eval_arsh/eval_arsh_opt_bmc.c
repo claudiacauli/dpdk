@@ -1,19 +1,4 @@
-/*
- * OP-OPTIMALITY VERIFIER for eval_arsh (arithmetic right shift).
- * arsh is monotone in the value; monotonicity in the shift FLIPS by sign
- * (negatives move UP toward -1 as the shift grows), so the code picks the shift
- * corner per sign. Sign-aware corner witnesses for the SIGNED track:
- *   s.max: v=rd.s.max, q = (rd.s.max<0 ? rs.u.max : rs.u.min)
- *   s.min: v=rd.s.min, q = (rd.s.min<0 ? rs.u.min : rs.u.max)
- * and the all-non-negative UNSIGNED track (arith == logical there):
- *   u.max: (rd.u.max, rs.u.min)   u.min: (rd.u.min, rs.u.max)
- * result = arithmetic shift of the canonical signed value: tos(pat,msk) >> q.
- *   SUCCESSFUL => tight ; FAILED => CEX.
- * NOWIDEN: rs.u.max < opsz; the u-track additionally needs all-non-negative
- * (rd.u.max <= msk>>1) to avoid the sign-spanning widen.
- * Flags: -DBMC_UMAX|_UMIN|_SMAX|_SMIN, -DBMC_32|_64, -DBMC_NOSELFOPT, -DBMC_SANITY.
- * Build with -DALL_FIXES.
- */
+
 #include <assert.h>
 #include "eval_arsh.h"
 
@@ -70,7 +55,7 @@ int main(void)
 #endif
 	REQUIRE(rs.u.max < opsz);
 #if defined(BMC_UMAX) || defined(BMC_UMIN)
-	REQUIRE(rd.u.max <= (msk >> 1));          /* all non-negative u-track */
+	REQUIRE(rd.u.max <= (msk >> 1));
 #endif
 
 	uint64_t xv; uint64_t q;
@@ -92,7 +77,6 @@ int main(void)
 	const struct bpf_reg_val od = rd, os = rs;
 	eval_arsh(&rd, &rs, opsz, msk);
 
-	/* arithmetic shift of the canonical signed value */
 	int64_t rs_signed = tos(xv, msk) >> q;
 	uint64_t res = (uint64_t)rs_signed & msk;
 

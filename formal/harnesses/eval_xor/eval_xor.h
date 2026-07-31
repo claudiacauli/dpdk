@@ -18,7 +18,6 @@ predicate eval_xor_unsigned_soundness(struct bpf_reg_val od, struct bpf_reg_val 
 		bin_witness(od, os, x, y, msk)
 			==> nw.u.min <= (x ^ y) <= nw.u.max;
 
-// OP-OPTIMALITY (Category B, narrow regime -- see eval_xor.c for the guard).
 predicate eval_xor_unsigned_optimal(struct bpf_reg_val od, struct bpf_reg_val os,
                                      struct bpf_reg_val nw, uint64_t msk) =
 	(\exists integer x, y; bin_witness(od, os, x, y, msk) && (x ^ y) == nw.u.max) &&
@@ -34,4 +33,4 @@ predicate eval_xor_signed_optimal(struct bpf_reg_val od, struct bpf_reg_val os,
 
 void eval_xor(struct bpf_reg_val *rd, const struct bpf_reg_val *rs, size_t opsz, uint64_t msk);
 
-#endif /* EVAL_XOR_H */
+#endif

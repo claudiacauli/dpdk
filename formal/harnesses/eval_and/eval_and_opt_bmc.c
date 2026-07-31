@@ -1,24 +1,4 @@
-/*
- * OP-OPTIMALITY probe for eval_and — the Category-B test.
- *
- * AND's u.max is eval_uand_max = umax_bits(v1) & umax_bits(v2): each operand max
- * is rounded UP to 2^k-1 (bit-fill) then ANDed. The tight max of a&b over the
- * ranges depends on the achievable BIT PATTERNS, not just the endpoints, so
- * (a) the bit-fill bound overshoots and (b) there is no cheap endpoint formula
- * for the true max. This probe fixes a concrete SELF-OPTIMAL input and asks, over a
- * nondet representable pair (a,b), whether the computed u.max is ever attained:
- *
- *   assert (a & b) != rd.u.max   -->
- *     VERIFICATION SUCCESSFUL => NO pair attains u.max => LOOSE (with soundness
- *                                a&b<=u.max, u.max is strictly above the image).
- *     VERIFICATION FAILED (CEX) => some pair hits u.max => tight for this input.
- *
- * Regimes (all self-optimal, non-negative — u-track focus):
- *   -DR_DISJOINT : rd=const 8, rs=[0,7]      (bits disjoint; true max 0, code 7)
- *   -DR_FILL     : rd=[0,8],   rs=[0,8]       (true max 8, code 15)
- *   -DR_ONES     : rd=[0,7],   rs=[0,7]       (2^k-1 forms; true max 7 == code 7)
- * -DBMC_32|_64 ; -DBMC_SANITY.  Build with -DALL_FIXES.
- */
+
 #include <assert.h>
 #include "eval_and.h"
 
@@ -61,7 +41,6 @@ int main(void)
 # error "define a regime R_DISJOINT|R_FILL|R_ONES"
 #endif
 
-	/* inputs are self-optimal by construction (small non-negative ranges) */
 	const struct bpf_reg_val od = rd, os = rs;
 	eval_and(&rd, &rs, opsz, msk);
 
@@ -71,9 +50,7 @@ int main(void)
 #ifdef BMC_SANITY
 	assert(0);
 #endif
-	/* soundness sanity: the image is under u.max (should always hold) */
 	assert((a & b) <= rd.u.max);
-	/* tightness: is u.max attained? SUCCESSFUL => loose, FAILED => attained */
 	assert((a & b) != rd.u.max);
 	return 0;
 }

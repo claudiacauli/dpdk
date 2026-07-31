@@ -1871,3 +1871,74 @@ An item that says "X is wrong... actually this is correct" is a FALSE POSITIVE a
 This applies to style, format, and process items only.
 
 **If your Errors section would be empty after this check, that's fine -- it means the patches are good.**
+
+---
+
+# Formal Verification Team — Visualization Team
+
+This is a **visualization-only** team. It does NOT modify any proof files under `formal/harnesses/` (`.c`, `.h`, `*_bmc.c`, `*_main.c`, `axioms_*.h`). It only produces `.html`, `.py`, `.dot`, `.md` files for visualizing verification results.
+
+The team is configured in `.opencode/agents/`.
+
+## Team Roles
+
+| Agent | File | Role |
+|---|---|---|
+| @formal-verification-lead | `.opencode/agents/formal-verification-lead.md` | Read-only advisor — verifies status accuracy for the dashboard |
+| @viz-engineer | `.opencode/agents/viz-engineer.md` | Builds HTML/JS visualizations (call graph, CFG, contract dashboard) |
+| @tooling-engineer | `.opencode/agents/tooling-engineer.md` | Builds `generate_dashboard.py` — reads harness files, produces HTML |
+| @tech-comms-lead | `.opencode/agents/tech-comms-lead.md` | Crafts labels, tooltips, prompts, and docs for the dashboard |
+
+## Hard Rules
+
+1. **NO modifications to any file under `formal/harnesses/`** with extension `.c`, `.h`, `*_bmc.c`, `*_main.c`, or `axioms_*.h`
+2. Allowed files to create/modify: `.html`, `.py`, `.dot`, `.md`, `.json`, `.css`, `.js`
+3. If you need verification data, you READ the harness files — you do not edit them
+4. If you spot an error in a proof file, report it to the user — do not fix it
+
+## Development Process
+
+### Standard Workflow
+
+1. **Plan** — Describe the requirement. `@tech-comms-lead` can help scope it.
+2. **Design** — `@formal-verification-lead` validates data accuracy requirements.
+3. **Build** — `@viz-engineer` or `@tooling-engineer` implements the deliverable.
+4. **Review** — Open the `.html` in a browser and verify it renders correctly.
+5. **Iterate** — Refine labels with `@tech-comms-lead`, data accuracy with `@formal-verification-lead`.
+
+### Invoking Agents
+
+Use `@` mention:
+
+```
+@viz-engineer Add a FIX Gate Explorer view to the dashboard
+@formal-verification-lead Is the status of eval_mul PROVED or PROVED_WITH_FIX?
+@tech-comms-lead Write a tooltip explaining what PROVED_WITH_FIX means
+```
+
+### Parallel Work
+
+```
+@general Do two things:
+1. @tooling-engineer updates generate_dashboard.py to read eval_fill_imm64's FIX gate
+2. @viz-engineer adds the FIX gate to the dashboard's Fix Gate Explorer
+Then merge.
+```
+
+## Quality Gates
+
+Before a visualization change is complete:
+1. Open the `.html` in Chrome and Safari — no JavaScript errors in console
+2. Verify proof status against the harness files (ask `@formal-verification-lead`)
+3. The generator script produces valid output (run `python generate_dashboard.py`)
+4. All interactive features work: drag, pan, click, save/load
+
+## Verification Status Definitions
+
+| Status | Meaning |
+|---|---|
+| PROVED | All ensures close in WP proof with current FIX config |
+| PROVED_WITH_FIX | Proved only when FIX_* gates are enabled |
+| PARKED | Lemmas proved but not wired into dispatcher contract |
+| STATED_UNPROVED | Lemma exists but proof does not close |
+| BM_ONLY | Only BMC harness exists (no WP proof) |

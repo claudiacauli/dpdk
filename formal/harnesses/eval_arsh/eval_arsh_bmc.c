@@ -1,14 +1,4 @@
-/*
- * Intersection-soundness BMC harness for eval_arsh, matching the declared WP
- * contract (eval_arsh.h bin_witness form): precondition is is_scalar +
- * range_ORDERING + range_within_width (agreement DROPPED); the witness is a
- * pattern in the unsigned range whose signed reading lies in the signed
- * range, shifted by y < op_bits(msk). Confirms the intersection-form
- * usound/ssound WP contracts are TRUE (BMC) before investing in the WP proof.
- *   default SUCCESSFUL  => intersection soundness holds.
- *   default FAILED (CEX) => the contract is wrong.
- *   -DBMC_SANITY assert(0) must be VIOLATED => asserts reachable (non-vacuous).
- */
+
 #include <assert.h>
 #include "eval_arsh.h"
 
@@ -69,7 +59,6 @@ int main(void)
 
 	const struct bpf_reg_val *prs = &rs;
 
-	/* requires: is_scalar + range_ORDERING (agreement DROPPED) + within_width */
 	REQUIRE(is_scalar(rd.v.type));
 	REQUIRE(is_scalar(prs->v.type));
 	REQUIRE(range_ordering(&rd) && range_ordering(prs));
@@ -77,31 +66,28 @@ int main(void)
 
 	const struct bpf_reg_val od = rd, os = *prs;
 
-	/* INTERSECTION witnesses: patterns in BOTH tracks; shift amount < op_bits */
 	uint64_t px = nondet_u64(), py = nondet_u64();
 	REQUIRE(od.u.min <= px && px <= od.u.max);
 	REQUIRE(od.s.min <= tos(px, msk) && tos(px, msk) <= od.s.max);
 	REQUIRE(os.u.min <= py && py <= os.u.max);
 	REQUIRE(os.s.min <= tos(py, msk) && tos(py, msk) <= os.s.max);
-	REQUIRE(py < opsz);   /* y < op_bits(msk) */
+	REQUIRE(py < opsz);
 
-	int64_t sv = tos(px, msk);   /* signed reading of the pattern */
+	int64_t sv = tos(px, msk);
 
 	eval_arsh(&rd, prs, opsz, msk);
 
-	assert(range_ordering(&rd));                            /* ord */
-	assert(range_within_width(&rd, msk));                  /* width */
+	assert(range_ordering(&rd));
+	assert(range_within_width(&rd, msk));
 
-	/* intersection ssound: (to_signed(v,msk) >> y) covered by output s */
 	int64_t s_val = sv >> py;
-	assert(rd.s.min <= s_val && s_val <= rd.s.max);        /* ssound (isect) */
+	assert(rd.s.min <= s_val && s_val <= rd.s.max);
 
-	/* intersection usound: ((uint64_t)(to_signed(x,msk) >> y)) & msk covered by output u */
 	uint64_t ures = ((uint64_t)(sv >> py)) & msk;
-	assert(rd.u.min <= ures && ures <= rd.u.max);          /* usound (isect) */
+	assert(rd.u.min <= ures && ures <= rd.u.max);
 
 #ifdef BMC_SANITY
-	assert(0);   /* must FAIL: proves the asserts are reachable */
+	assert(0);
 #endif
 	return 0;
 }

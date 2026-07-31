@@ -14,10 +14,6 @@
 	ensures sord:       signed_range_ordering(rv);
 	ensures swidth:     signed_range_within_width(rv, mask);
 
-	// OP-OPTIMALITY: N/A -- a Top-producer. It OVERWRITES the SIGNED track to full
-	// width [INT_MIN,INT_MAX] to DISCARD precision; no endpoint-attainment notion.
-	// It need NOT preserve self-optimality: widening one track alone can break
-	// cross-track endpoint witnessing (partial widening). optimality_notes.md §6h.
 */
 void eval_smax_bound(struct bpf_reg_val *rv, uint64_t mask)
 {
@@ -26,4 +22,3 @@ void eval_smax_bound(struct bpf_reg_val *rv, uint64_t mask)
 	//@ assert mask == _32_BIT_MASK ==> rv->s.min == INT32_MIN;
 	//@ assert mask == _64_BIT_MASK ==> rv->s.min == INT64_MIN;
 }
-

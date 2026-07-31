@@ -1,15 +1,4 @@
-/*
- * OP-OPTIMALITY VERIFIER for eval_rsh over FULLY NONDET input.
- * x >> sh is monotone in x, ANTI-monotone in sh (sh drawn from rs->u), so the
- * corners CROSS:
- *   u.max <- (rd.u.max, rs.u.min)   u.min <- (rd.u.min, rs.u.max)
- *   s.max <- (rd.s.max, rs.u.min)   s.min <- (rd.s.min, rs.u.max)
- * Construct-and-check corner witnesses.
- *   SUCCESSFUL => tight for every self-optimal no-widen input ; FAILED => CEX.
- * NOWIDEN: shift < width (rs.u.max < opsz); s also needs rd.s.min >= 0.
- * Flags: -DBMC_UMAX|_UMIN|_SMAX|_SMIN, -DBMC_32|_64, -DBMC_NOSELFOPT, -DBMC_SANITY.
- * Build with -DALL_FIXES.
- */
+
 #include <assert.h>
 #include "eval_rsh.h"
 
@@ -65,9 +54,9 @@ int main(void)
 	  REQUIRE(wb <= msk && repr(&rs, wb, msk)); }
 #endif
 
-	REQUIRE(rs.u.max < opsz);                 /* no shift->=-width widen */
+	REQUIRE(rs.u.max < opsz);
 #if defined(BMC_SMAX) || defined(BMC_SMIN)
-	REQUIRE(rd.s.min >= 0);                   /* no signed positivity widen */
+	REQUIRE(rd.s.min >= 0);
 #endif
 
 	uint64_t xv, sh;

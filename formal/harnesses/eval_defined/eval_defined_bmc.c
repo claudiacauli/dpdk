@@ -28,13 +28,11 @@ int main(void)
 
 	const char *err = eval_defined(dst, src);
 
-	/* cross-check of the def_iff postcondition */
 	int undef = (dst != NULL && dst->v.type == RTE_BPF_ARG_UNDEF) ||
 		(src != NULL && src->v.type == RTE_BPF_ARG_UNDEF);
 	assert((err != NULL) == undef);
 
 #ifdef BMC_SANITY
-	/* must FAIL: proves the asserts above are reachable */
 	assert(0);
 #endif
 

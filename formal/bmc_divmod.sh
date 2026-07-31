@@ -1,19 +1,4 @@
 #!/usr/bin/env bash
-#
-# eval_divmod BMC — the symbolic 64-bit udiv/urem circuits are heavy for
-# bit-vector solvers (same profile as eval_mul's multiplies); run on a big
-# box if the laptop cells time out.
-#
-# Splits the check into (op x width) cells so each solver query carries a
-# single symbolic divider, and runs the cells in parallel. Prints one
-# PASS/FAIL/TIMEOUT line per cell.
-#
-# Harness is the intersection-soundness form (bin_witness; agreement dropped;
-# is_scalar) matching the declared WP contract. Expected results:
-#   FIXED cells   -> all SUCCESSFUL (the intersection soundness holds)
-#   SANITY        -> FAILED (asserts reachable; harness not vacuous)
-#
-# Usage:  ./bmc_divmod.sh [timeout_seconds]   (default 1200)
 
 cd "$(dirname "$0")" || exit 1
 TMO=${1:-1200}
@@ -21,17 +6,11 @@ SR="harnesses/eval_divmod/eval_divmod.c harnesses/eval_smax_bound/eval_smax_boun
 BMC=harnesses/eval_divmod/eval_divmod_bmc.c
 OUT=$(mktemp -d)
 
-# ESBMC's bundled clang chains <stddef.h> etc. via #include_next to the
-# system compiler's builtin header dir. On Linux that dir is off the search
-# path, so the chain dead-ends ("stddef.h file not found") — add gcc's
-# include dir with -I so the chain resolves. gcc's dir ONLY: adding clang's
-# resource dir alongside pulls in version-mismatched headers that break
-# ESBMC's own clang. (These are Linux big-box runners; not used on macOS.)
 SYSINC=
 GCC_INC=$(gcc -print-file-name=include 2>/dev/null)
 [ -f "$GCC_INC/stddef.h" ] && SYSINC="-I$GCC_INC"
 
-cell() { # label  defs...
+cell() {
 	local label=$1; shift
 	local f="$OUT/$label"
 	esbmc "$@" $SYSINC --timeout "${TMO}s" $BMC $SR >"$f" 2>&1

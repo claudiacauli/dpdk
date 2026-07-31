@@ -14,11 +14,6 @@
 	ensures uord:       unsigned_range_ordering(rv);
 	ensures uwidth:     unsigned_range_within_width(rv, mask);
 
-	// OP-OPTIMALITY: N/A -- a Top-producer. It OVERWRITES the UNSIGNED track to
-	// full width [0,mask] to DISCARD precision (does not transform a value set), so
-	// there is no endpoint-attainment notion. It need NOT preserve self-optimality:
-	// widening one track alone can break cross-track endpoint witnessing (the
-	// partial-widening case). optimality_notes.md §6h.
 */
 void eval_umax_bound(struct bpf_reg_val *rv, uint64_t mask)
 {
