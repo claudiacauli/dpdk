@@ -27,7 +27,7 @@ predicate alu_undef(struct ebpf_insn ins, integer dtype, integer stype) =
 
 logic integer alu_op_pat(integer op, integer x, integer y, uint64_t msk) =
 	op == BPF_ADD   ? ((x + y) & msk) :
-	op == BPF_SUB   ? wrap_diff(x - y, msk) :
+	op == BPF_SUB   ? ((x - y) & msk) :
 	op == BPF_MUL   ? ((x * y) & msk) :
 	op == BPF_DIV   ? x / y :
 	op == BPF_MOD   ? x % y :

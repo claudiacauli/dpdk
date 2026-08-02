@@ -4,16 +4,13 @@
 #include "axioms.h"
 
 /*@
-logic integer wrap_diff(integer d, integer msk) =
-      d >= 0 ? d : d + (msk + 1);
-
 logic integer neg_pat(integer x, integer msk) =
 	x == 0 ? 0 : msk + 1 - x;
 */
 
 #define SEM_ADD(x, y, msk)	(((x) + (y)) & (msk))
 
-#define SEM_SUB(x, y, msk)	wrap_diff((x) - (y), (msk))
+#define SEM_SUB(x, y, msk)	(((x) - (y)) & (msk))
 
 #define SEM_MUL(x, y, msk)	(((x) * (y)) & (msk))
 

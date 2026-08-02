@@ -55,6 +55,22 @@ static void land_wrap_family(void)
 	}
 }
 
+static void land_wrapneg_family(void)
+{
+
+	{
+		int64_t x = nondet_i64();
+		if (-0x100000000LL <= x && x < 0)
+			assert((x & 0xFFFFFFFFLL) == x + 0x100000000LL);
+	}
+
+	{
+		__int128 x = (__int128)nondet_u128();
+		if (-((__int128)1 << 64) <= x && x < 0)
+			assert((x & (__int128)ALL1) == x + ((__int128)1 << 64));
+	}
+}
+
 static void apply_mask_block_family(void)
 {
 	{
@@ -810,6 +826,7 @@ int main(void)
 {
 	land_family();
 	land_wrap_family();
+	land_wrapneg_family();
 	apply_mask_block_family();
 	bpf_arg_ptr_type();
 	lenshift_core();

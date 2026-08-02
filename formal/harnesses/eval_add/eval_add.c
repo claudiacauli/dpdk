@@ -13,6 +13,7 @@
 	terminates \true;
 	assigns *rd;
 
+	ensures unchanged_mask: rd->mask == \old(rd->mask);
 	ensures type_ok:    is_scalar(rd->v.type);
 	ensures uord:       unsigned_range_ordering(rd);
 	ensures sord:       signed_range_ordering(rd);

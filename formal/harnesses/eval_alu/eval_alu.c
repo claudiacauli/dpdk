@@ -69,6 +69,12 @@
 	ensures swidth: \result == \null ==>
 		signed_range_within_width(&bvf->evst->rv[ins->dst_reg],
 			alu_msk(ins->code));
+	ensures mask_ok: \result == \null ==>
+		bvf->evst->rv[ins->dst_reg].mask == _32_BIT_MASK ||
+		bvf->evst->rv[ins->dst_reg].mask == _64_BIT_MASK;
+	ensures own_width: \result == \null ==>
+		range_within_width(&bvf->evst->rv[ins->dst_reg],
+			bvf->evst->rv[ins->dst_reg].mask);
 
 	ensures usound: \result == \null && !alu_selfxor(*ins) ==>
 		eval_alu_unsigned_soundness(

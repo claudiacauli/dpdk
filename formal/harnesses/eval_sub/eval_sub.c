@@ -1,6 +1,7 @@
 #include "eval_sub.h"
 #include "../eval_umax_bound/eval_umax_bound.h"
 #include "../eval_smax_bound/eval_smax_bound.h"
+#include "../../common/axioms_sub.h"
 
 /*@
 	requires msk == _32_BIT_MASK || msk == _64_BIT_MASK;
@@ -218,18 +219,18 @@ void eval_sub(struct bpf_reg_val *rd, const struct bpf_reg_val *rs, uint64_t msk
 	                    \at(rd->u.min,Pre), \at(rs->u.max,Pre), msk); */
 	/*@ assert uopt_sum_umax:
 	      \at(rd->u.min,Pre) >= \at(rs->u.max,Pre) ==>
-	        wrap_diff(\at(rd->u.max,Pre) - \at(rs->u.min,Pre), msk) == rd->u.max; */
+	        ((\at(rd->u.max,Pre) - \at(rs->u.min,Pre)) & msk) == rd->u.max; */
 	/*@ assert uopt_sum_umin:
 	      \at(rd->u.min,Pre) >= \at(rs->u.max,Pre) ==>
-	        wrap_diff(\at(rd->u.min,Pre) - \at(rs->u.max,Pre), msk) == rd->u.min; */
+	        ((\at(rd->u.min,Pre) - \at(rs->u.max,Pre)) & msk) == rd->u.min; */
 #ifdef FIX_SUB_UNSIGNED_OVFL
 
 	/*@ assert uopt_sum_umax_w:
 	      \at(rd->u.max,Pre) < \at(rs->u.min,Pre) ==>
-	        wrap_diff(\at(rd->u.max,Pre) - \at(rs->u.min,Pre), msk) == rd->u.max; */
+	        ((\at(rd->u.max,Pre) - \at(rs->u.min,Pre)) & msk) == rd->u.max; */
 	/*@ assert uopt_sum_umin_w:
 	      \at(rd->u.max,Pre) < \at(rs->u.min,Pre) ==>
-	        wrap_diff(\at(rd->u.min,Pre) - \at(rs->u.max,Pre), msk) == rd->u.min; */
+	        ((\at(rd->u.min,Pre) - \at(rs->u.max,Pre)) & msk) == rd->u.min; */
 #endif
 	/*@ assert sopt_wit_smax:
 	      self_optimal(\at(*rd,Pre), msk) && self_optimal(\at(*rs,Pre), msk) ==>
